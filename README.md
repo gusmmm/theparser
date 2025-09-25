@@ -78,6 +78,29 @@ Your processed files will appear in `pdf/output/[subject]/` with individual docu
 
 ## 📖 Usage
 
+### Interactive Menu (New)
+
+You can launch an interactive Rich-powered menu to explore and run parsing tasks without remembering flags:
+
+```bash
+python main.py --menu
+```
+
+Menu Options (current scope):
+
+| Option | Action |
+|--------|--------|
+| 1 | List unparsed PDF files still in `pdf/` |
+| 2 | List parsed files (grouped by subject) |
+| 3 | Show latest parsing report (summary & files) |
+| 4 | Parse all currently unparsed PDFs |
+| 5 | Force re-parse already parsed PDFs (if original PDFs remain) |
+| 0 | Return / exit |
+
+Each parsing action automatically writes a structured JSON report to `reports/` and maintains an index for quick lookup. Reports include timestamps, parsed file names, counts, and any errors.
+
+---
+
 ### Basic Commands
 
 ```bash

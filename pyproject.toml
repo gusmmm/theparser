@@ -5,7 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "colorama>=0.4.6",
+    "icecream>=2.1.8",
     "llama-cloud-services>=0.6.69",
     "llama-parse>=0.6.69",
+    "matplotlib>=3.10.6",
+    "pandas>=2.3.2",
     "python-dotenv>=1.1.1",
+    "rich>=13.7.1",
 ]

@@ -3,23 +3,828 @@ import json
 import shutil
 import asyncio
 import argparse
+from datetime import datetime
+from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 from collections import defaultdict
+from typing import List, Dict, Any, Optional
+
 from dotenv import load_dotenv
 
+# Rich / UI imports (lazy fallback if not installed will degrade gracefully)
+try:
+    from rich.console import Console  # type: ignore[import-not-found]
+    from rich.table import Table      # type: ignore[import-not-found]
+    from rich.panel import Panel      # type: ignore[import-not-found]
+    from rich.prompt import Prompt, Confirm  # type: ignore[import-not-found]
+    from rich.text import Text        # type: ignore[import-not-found]
+    from rich import box              # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - best effort
+    Console = None  # type: ignore
+
+CONSOLE = Console() if Console else None
+
 from llama_cloud_services import LlamaParse
+from icecream import ic
 
 # Load environment variables from .env file
 load_dotenv()
 LLAMA_CLOUD_API_KEY = os.getenv("LLAMA_CLOUD_API_KEY")
 
-parser = LlamaParse(
-    api_key=LLAMA_CLOUD_API_KEY,
-    base_url='https://api.cloud.eu.llamaindex.ai',
-    num_workers=1,       # if multiple files passed, split in `num_workers` API calls
-    verbose=True,
-    language="pt",       # optionally define a language, default=en
-)
+if not LLAMA_CLOUD_API_KEY:
+    print("[WARN] LLAMA_CLOUD_API_KEY not set – parsing calls will fail until you export it.")
+
+# Region-aware base URL (default to EU as requested; allow override via env)
+LLAMA_CLOUD_BASE_URL = os.getenv("LLAMA_CLOUD_BASE_URL", "https://api.cloud.eu.llamaindex.ai")
+
+try:
+    # NOTE: Pylance might not know these keyword args depending on installed version; suppress type warnings.
+    parser = LlamaParse(  # type: ignore[call-arg]
+        api_key=LLAMA_CLOUD_API_KEY or "",
+        base_url=LLAMA_CLOUD_BASE_URL,
+        language="pt",  # adjust if needed
+        verbose=True,
+    )
+    if CONSOLE:
+        CONSOLE.print(Panel(f"Using LlamaParse endpoint: [bold]{LLAMA_CLOUD_BASE_URL}[/bold]", title="LlamaParse", border_style="cyan"))
+    else:
+        print(f"Using LlamaParse endpoint: {LLAMA_CLOUD_BASE_URL}")
+except Exception as _e:  # pragma: no cover
+    print(f"[WARN] Failed to initialize LlamaParse with base_url={LLAMA_CLOUD_BASE_URL}: {_e}")
+    parser = None  # type: ignore
+
+# ---------------------------------------------------------------------------
+# Reporting & Utility Helpers
+# ---------------------------------------------------------------------------
+
+REPORTS_DIR = Path("reports")
+REPORTS_DIR.mkdir(exist_ok=True)
+REPORT_INDEX_FILE = REPORTS_DIR / "parsing_reports_index.json"
+
+
+def _load_report_index() -> Dict[str, Any]:
+    if REPORT_INDEX_FILE.exists():
+        try:
+            return json.load(open(REPORT_INDEX_FILE, 'r', encoding='utf-8'))
+        except Exception:
+            return {"reports": []}
+    return {"reports": []}
+
+
+def _save_report_index(index: Dict[str, Any]) -> None:
+    with open(REPORT_INDEX_FILE, 'w', encoding='utf-8') as f:
+        json.dump(index, f, indent=2, ensure_ascii=False)
+
+
+SCHEMA_VERSION = "1.1"
+SUBJECT_LOG_VERSION = "1.0"
+
+
+def _hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    try:
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
+def _subject_history_file(subject_dir: Path) -> Path:
+    return subject_dir / "subject_history.json"
+
+
+def _subject_log_file(subject_dir: Path) -> Path:
+    return subject_dir / "subject_log.json"
+
+
+def load_subject_log(subject_dir: Path) -> Dict[str, Any]:
+    f = _subject_log_file(subject_dir)
+    if f.exists():
+        try:
+            return json.load(open(f, 'r', encoding='utf-8'))
+        except Exception:
+            pass
+    return {
+        "log_version": SUBJECT_LOG_VERSION,
+        "subject": subject_dir.name,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        "events": []
+    }
+
+
+def append_subject_log(subject_dir: Path, event_type: str, payload: Dict[str, Any]) -> None:
+    log = load_subject_log(subject_dir)
+    log.setdefault("events", [])
+    log["events"].append({
+        "ts": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        "type": event_type,
+        **payload
+    })
+    log["log_version"] = SUBJECT_LOG_VERSION
+    try:
+        with open(_subject_log_file(subject_dir), 'w', encoding='utf-8') as f:
+            json.dump(log, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[WARN] Failed writing subject log for {subject_dir.name}: {e}")
+
+
+def load_subject_history(subject_dir: Path) -> Dict[str, Any]:
+    f = _subject_history_file(subject_dir)
+    if f.exists():
+        try:
+            return json.load(open(f, 'r', encoding='utf-8'))
+        except Exception:
+            pass
+    return {"schema_version": SCHEMA_VERSION, "subject": subject_dir.name, "events": []}
+
+
+def append_subject_event(subject_dir: Path, event_type: str, payload: Dict[str, Any]) -> None:
+    history = load_subject_history(subject_dir)
+    history.setdefault("events", [])
+    event_record = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        "type": event_type,
+        **payload
+    }
+    history["events"].append(event_record)
+    ic("subject_event_recorded", {"subject": subject_dir.name, "event": event_type, "payload_keys": list(payload.keys())})
+    history["schema_version"] = SCHEMA_VERSION
+    try:
+        with open(_subject_history_file(subject_dir), 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[WARN] Failed writing subject history for {subject_dir.name}: {e}")
+
+
+def collect_subject_file_hashes(pdf_files: List[Path]) -> List[Dict[str, str]]:
+    return [{"file": p.name, "sha256": _hash_file(p)} for p in pdf_files]
+
+
+def report_parser(event: str, parsed_files: Optional[List[str]] = None, errors: Optional[List[str]] = None, details: Optional[Dict[str, Any]] = None) -> Path:
+    """Create a timestamped report capturing parsing outcomes.
+
+    Parameters
+    ----------
+    event: str
+        Description of the event (e.g., 'initial_parse', 'reparse').
+    parsed_files: list[str]
+        Files successfully parsed in this run.
+    errors: list[str]
+        Error messages captured.
+    """
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    report_file = REPORTS_DIR / f"parse_report_{ts}.json"
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "timestamp": ts,
+        "event": event,
+        "items": parsed_files or [],  # generalized field
+        "errors": errors or [],
+        "count_items": len(parsed_files or []),
+        "count_errors": len(errors or []),
+        "details": details or {},
+    }
+    with open(report_file, 'w', encoding='utf-8') as f:
+        json.dump(record, f, indent=2, ensure_ascii=False)
+
+    # update index
+    index = _load_report_index()
+    index.setdefault("reports", []).append({"file": report_file.name, **record})
+    _save_report_index(index)
+
+    if CONSOLE:
+        CONSOLE.print(Panel.fit(f"Report saved: [bold]{report_file.name}[/bold] (event={event}, items={len(record['items'])})", title="Report", style="green"))
+    else:
+        print(f"Report saved: {report_file}")
+    return report_file
+
+
+def latest_report() -> Optional[Dict[str, Any]]:
+    index = _load_report_index()
+    if not index.get("reports"):
+        return None
+    return index["reports"][-1]
+
+
+def list_unparsed_pdfs(pdf_root: str = "./pdf") -> List[Path]:
+    root = Path(pdf_root)
+    return [p for p in root.glob('*.pdf') if p.is_file()]
+
+
+def list_subjects(base_output_dir: str = "./pdf/output") -> List[Path]:
+    base = Path(base_output_dir)
+    if not base.exists():
+        return []
+    return [d for d in base.iterdir() if d.is_dir() and d.name.isdigit() and len(d.name) == 4]
+
+
+def list_parsed_files(base_output_dir: str = "./pdf/output") -> List[Path]:
+    parsed = []
+    for subj in list_subjects(base_output_dir):
+        for doc_dir in subj.iterdir():
+            if doc_dir.is_dir() and (doc_dir / 'markdown').exists():
+                parsed.append(doc_dir)
+    return parsed
+
+
+def render_table(title: str, rows: List[List[str]], headers: List[str]) -> None:
+    if not CONSOLE:
+        print(title)
+        print(headers)
+        for r in rows:
+            print(r)
+        return
+    table = Table(
+        title=f"[bold]{title}[/bold]",
+        box=box.MINIMAL_DOUBLE_HEAD,
+        header_style="bold bright_cyan",
+        title_style="bold magenta",
+        show_lines=False,
+        padding=(0,1)
+    )
+    for h in headers:
+        table.add_column(h, style="white", overflow="fold")
+    if not rows:
+        table.add_row(*(["[dim]—[/dim]"] * len(headers)))
+    else:
+        for row in rows:
+            styled = []
+            for idx, c in enumerate(row):
+                txt = str(c)
+                if idx == 0:
+                    txt = f"[bold green]{txt}[/bold green]"
+                styled.append(txt)
+            table.add_row(*styled)
+    CONSOLE.print(table)
+
+
+def _print_banner():
+    if not CONSOLE:
+        print("=== LlamaParse Menu ===")
+        return
+    banner_text = Text()
+    banner_text.append(" LlamaParse CLI ", style="bold white on magenta")
+    banner_text.append("  •  PDF Intelligence  ", style="bold black on bright_white")
+    CONSOLE.print(Panel(banner_text, style="magenta", expand=True, padding=(1,2), title="🚀", subtitle="Use numbers or q to exit"))
+
+
+def _menu_options() -> Table:
+    table = Table(box=box.SIMPLE, show_header=False, padding=(0,1))
+    table.add_column("Opt", style="bold cyan", width=4, justify="right")
+    table.add_column("Action", style="white")
+    options = [
+        ("1", "List unparsed PDF files"),
+        ("2", "List parsed PDF subjects/files"),
+        ("3", "Show latest parse report"),
+        ("4", "Parse unparsed PDF files"),
+        ("5", "Re-parse already parsed files (force)"),
+        ("0", "Back / Exit")
+    ]
+    for key, label in options:
+        table.add_row(f"[bold]{key}[/bold]", label)
+    return table
+
+
+def _status_panel(pdf_dir: str, base_output_dir: str) -> Panel:
+    unparsed = list_unparsed_pdfs(pdf_dir)
+    parsed_count = len(list_parsed_files(base_output_dir))
+    subjects = len(list_subjects(base_output_dir))
+    content = (
+        f"[bright_cyan]Unparsed:[/bright_cyan] {len(unparsed)}  |  "
+        f"[bright_cyan]Documents Parsed:[/bright_cyan] {parsed_count}  |  "
+        f"[bright_cyan]Subjects:[/bright_cyan] {subjects}"
+    )
+    return Panel(content, title="Status", border_style="cyan", padding=(0,1))
+
+
+def compute_markdown_status(base_output_dir: str = "./pdf/output") -> Dict[str, List[str]]:
+    status = {"merged": [], "cleaned": [], "unmerged": [], "uncleaned": []}
+    for subj in list_subjects(base_output_dir):
+        subject = subj.name
+        merged_file = subj / f"{subject}_merged_medical_records.md"
+        cleaned_file = subj / f"{subject}_merged_medical_records.cleaned.md"
+        if merged_file.exists():
+            status["merged"].append(subject)
+            if cleaned_file.exists():
+                status["cleaned"].append(subject)
+            else:
+                status["uncleaned"].append(subject)
+        else:
+            # Determine if there is parsed content (markdown directories) but no merged file
+            doc_folders = [d for d in subj.iterdir() if d.is_dir() and (d / 'markdown').exists()]
+            if doc_folders:
+                status["unmerged"].append(subject)
+    return status
+
+
+def summarize_subject_logs(base_output_dir: str = "./pdf/output") -> Dict[str, Any]:
+    """Aggregate subject_log.json files to provide project-wide statistics."""
+    base = Path(base_output_dir)
+    summary = {
+        "subjects": 0,
+        "parsed_events": 0,
+        "merge_events": 0,
+        "clean_events": 0,
+        "subjects_with_parse": 0,
+        "subjects_with_merge": 0,
+        "subjects_with_clean": 0,
+    }
+    for subj in list_subjects(base_output_dir):
+        log_file = subj / 'subject_log.json'
+        if not log_file.exists():
+            continue
+        try:
+            data = json.load(open(log_file, 'r', encoding='utf-8'))
+        except Exception:
+            continue
+        events = data.get('events', [])
+        if not events:
+            continue
+        summary['subjects'] += 1
+        types = {e.get('type') for e in events}
+        if 'parse' in types:
+            summary['subjects_with_parse'] += 1
+        if 'merge' in types:
+            summary['subjects_with_merge'] += 1
+        if 'clean' in types:
+            summary['subjects_with_clean'] += 1
+        summary['parsed_events'] += sum(1 for e in events if e.get('type') == 'parse')
+        summary['merge_events'] += sum(1 for e in events if e.get('type') == 'merge')
+        summary['clean_events'] += sum(1 for e in events if e.get('type') == 'clean')
+    return summary
+
+
+async def menu_llamaparse(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output") -> None:
+    """Interactive submenu for LlamaParse related actions with Rich UI."""
+    def subject_history(subject: str) -> Optional[Dict[str, Any]]:
+        subj_dir = Path(base_output_dir) / subject
+        hist_file = subj_dir / "subject_history.json"
+        if hist_file.exists():
+            try:
+                return json.load(open(hist_file,'r',encoding='utf-8'))
+            except Exception:
+                return None
+        return None
+
+    def stale_subjects() -> List[str]:
+        stale: List[str] = []
+        for subj_dir in list_subjects(base_output_dir):
+            hist = load_subject_history(subj_dir)
+            # Find last parse event hashes
+            last_parse = None
+            for ev in reversed(hist.get('events', [])):
+                if ev.get('type') == 'parse':
+                    last_parse = ev
+                    break
+            if not last_parse:
+                continue
+            recorded = {f['file']: f['sha256'] for f in last_parse.get('files', []) if f.get('file')}
+            # Current pdfs (if still present) inside subject folder
+            current_pdfs = list(subj_dir.glob('*.pdf'))
+            changed = False
+            for p in current_pdfs:
+                h = _hash_file(p)
+                if p.name not in recorded or recorded[p.name] != h:
+                    changed = True
+                    break
+            if changed:
+                stale.append(subj_dir.name)
+        return stale
+
+    while True:
+        if CONSOLE:
+            _print_banner()
+            CONSOLE.print(_status_panel(pdf_dir, base_output_dir))
+            CONSOLE.print(_menu_options())
+            extra = Table(show_header=False, box=box.SIMPLE)
+            extra.add_column("Opt", style="bold cyan", width=4, justify="right")
+            extra.add_column("Action")
+            for k,label in [
+                ("6","View subject history"),
+                ("7","List stale subjects"),
+                ("8","Re-parse stale subjects"),
+            ]:
+                extra.add_row(k,label)
+            CONSOLE.print(extra)
+        else:
+            print("(Rich not available) LlamaParse Menu")
+        choice = (Prompt.ask("Enter choice", choices=["0","1","2","3","4","5","6","7","8","q"], default="0")
+                  if CONSOLE else input("Choice (q to quit): ").strip())
+        if choice in {"q","Q","0"}:
+            if CONSOLE:
+                CONSOLE.print("[bold green]Exiting menu...[/bold green]")
+            return
+
+        if choice == "1":
+            unparsed = list_unparsed_pdfs(pdf_dir)
+            render_table("Unparsed PDFs", [[p.name, f"{p.stat().st_size/1024:.1f} KB", datetime.fromtimestamp(p.stat().st_mtime).strftime('%Y-%m-%d %H:%M')] for p in unparsed], ["File", "Size", "Modified"])
+        elif choice == "2":
+            parsed = list_parsed_files(base_output_dir)
+            rows = []
+            for d in parsed:
+                subject = d.parent.name
+                pages = len(list((d / 'markdown').glob('page_*.md')))
+                rows.append([subject, d.name, pages])
+            render_table("Parsed Files", rows, ["Subject", "Document", "Pages"])
+        elif choice == "3":
+            rep = latest_report()
+            if not rep:
+                if CONSOLE:
+                    CONSOLE.print(Panel("No reports yet", style="yellow"))
+                else:
+                    print("No reports yet")
+            else:
+                # Backward & forward compatible extraction of counts and item lists
+                parsed_count = (
+                    rep.get('count_items')
+                    or rep.get('count_parsed')  # legacy
+                    or (len(rep.get('items', [])) if rep.get('items') else len(rep.get('parsed_files', [])))
+                )
+                errors_count = rep.get('count_errors') if rep.get('count_errors') is not None else len(rep.get('errors', []))
+                render_table(
+                    "Latest Report",
+                    [[
+                        rep.get('timestamp', ''),
+                        rep.get('event', ''),
+                        str(parsed_count),
+                        str(errors_count),
+                    ]],
+                    ["Timestamp","Event","Items","Errors"]
+                )
+                # Show items (new schema) or parsed_files (legacy)
+                if rep.get('items'):
+                    render_table("Items", [[f] for f in rep['items']], ["Item"])
+                elif rep.get('parsed_files'):
+                    render_table("Files Parsed", [[f] for f in rep['parsed_files']], ["File"])
+                if rep.get('errors'):
+                    render_table("Errors", [[e] for e in rep['errors']], ["Error"])
+        elif choice == "4":
+            unparsed = list_unparsed_pdfs(pdf_dir)
+            if not unparsed:
+                if CONSOLE:
+                    CONSOLE.print(Panel("No unparsed PDFs found", style="yellow"))
+                else:
+                    print("No unparsed PDFs found")
+                continue
+            if CONSOLE and not Confirm.ask(f"Parse {len(unparsed)} unparsed file(s)?"):
+                continue
+            subjects = organize_pdf_files_by_subject(pdf_dir)
+            parsed_files = []
+            errors = []
+            if CONSOLE:
+                from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn  # type: ignore[import-not-found]
+                with Progress(SpinnerColumn(), "[progress.description]{task.description}", TimeElapsedColumn(), transient=True) as progress:
+                    task = progress.add_task("Parsing subjects...", total=len(subjects))
+                    for subject, files in subjects.items():
+                        ok = await process_subject_batch(subject, files, base_output_dir)
+                        if ok:
+                            parsed_files.extend([f.name for f in files])
+                        else:
+                            errors.append(subject)
+                        progress.advance(task)
+            else:
+                for subject, files in subjects.items():
+                    ok = await process_subject_batch(subject, files, base_output_dir)
+                    if ok:
+                        parsed_files.extend([f.name for f in files])
+                    else:
+                        errors.append(subject)
+            report_parser("parse_new", parsed_files, errors)
+        elif choice == "5":
+            parsed = list_parsed_files(base_output_dir)
+            if not parsed:
+                if CONSOLE:
+                    CONSOLE.print(Panel("No previously parsed files found", style="yellow"))
+                else:
+                    print("No previously parsed files found")
+                continue
+            if CONSOLE and not Confirm.ask("Re-parse ALL existing parsed subjects? This will force reprocessing."):
+                continue
+            parsed_files = []
+            errors = []
+            subjects_dirs = list_subjects(base_output_dir)
+            if CONSOLE:
+                from rich.progress import Progress, BarColumn, TimeElapsedColumn  # type: ignore[import-not-found]
+                with Progress("[progress.description]{task.description}", BarColumn(), TimeElapsedColumn(), transient=True) as progress:
+                    task = progress.add_task("Re-parsing subjects", total=len(subjects_dirs))
+                    for subj_dir in subjects_dirs:
+                        pdfs = list(subj_dir.glob('*.pdf'))
+                        if not pdfs:
+                            progress.advance(task)
+                            continue
+                        ok = await process_subject_batch(subj_dir.name, pdfs, base_output_dir)
+                        if ok:
+                            parsed_files.extend([p.name for p in pdfs])
+                        else:
+                            errors.append(subj_dir.name)
+                        progress.advance(task)
+            else:
+                for subj_dir in subjects_dirs:
+                    pdfs = list(subj_dir.glob('*.pdf'))
+                    if not pdfs:
+                        continue
+                    ok = await process_subject_batch(subj_dir.name, pdfs, base_output_dir)
+                    if ok:
+                        parsed_files.extend([p.name for p in pdfs])
+                    else:
+                        errors.append(subj_dir.name)
+            report_parser("reparse_existing", parsed_files, errors)
+        elif choice == "6":  # view subject history
+            subj = Prompt.ask("Subject (4 digits)") if CONSOLE else input("Subject: ").strip()
+            hist = subject_history(subj)
+            if not hist:
+                (CONSOLE.print(Panel(f"No history for subject {subj}", style="yellow")) if CONSOLE else print("No history"))
+            else:
+                events = hist.get('events', [])
+                rows = [[e.get('ts',''), e.get('type',''), json.dumps({k:v for k,v in e.items() if k not in {'ts','type'} })[:60]] for e in events[-20:]]
+                render_table(f"History {subj} (last {len(rows)})", rows, ["Timestamp","Type","Data"])
+        elif choice == "7":  # list stale
+            stale = stale_subjects()
+            if stale:
+                render_table("Stale Subjects", [[s] for s in stale], ["Subject"])
+            else:
+                (CONSOLE.print(Panel("No stale subjects detected", style="green")) if CONSOLE else print("No stale subjects"))
+        elif choice == "8":  # re-parse stale
+            stale = stale_subjects()
+            if not stale:
+                (CONSOLE.print(Panel("No stale subjects to re-parse", style="green")) if CONSOLE else print("No stale subjects"))
+            else:
+                if CONSOLE and not Confirm.ask(f"Re-parse {len(stale)} stale subject(s)?"):
+                    continue
+                parsed_files = []
+                errors = []
+                for subj in stale:
+                    subj_dir = Path(base_output_dir) / subj
+                    pdfs = list(subj_dir.glob('*.pdf'))
+                    if not pdfs:
+                        continue
+                    ok = await process_subject_batch(subj, pdfs, base_output_dir)
+                    if ok:
+                        parsed_files.extend([p.name for p in pdfs])
+                    else:
+                        errors.append(subj)
+                report_parser("reparse_stale", parsed_files, errors, details={"subjects": stale})
+        else:
+            if CONSOLE:
+                CONSOLE.print(Panel("Invalid option", style="red"))
+            else:
+                print("Invalid option")
+        # Loop continues
+
+
+# ---------------------------------------------------------------------------
+# Merging & Cleaning Submenu
+# ---------------------------------------------------------------------------
+def _merge_markdown_for_all(subjects_root: str = "./pdf/output") -> List[str]:
+    """Wrapper to merge markdown for all subjects and return list of subjects processed."""
+    processed: List[str] = []
+    for subj_path in list_subjects(subjects_root):
+        try:
+            merge_documents_by_subject(str(subj_path))
+            processed.append(subj_path.name)
+        except Exception as e:
+            if CONSOLE:
+                CONSOLE.print(f"[red]Error merging subject {subj_path.name}: {e}[/red]")
+            else:
+                print(f"Error merging subject {subj_path.name}: {e}")
+    return processed
+
+
+def _clean_markdown_for_all(subjects_root: str = "./pdf/output") -> List[str]:
+    """Wrapper to clean merged markdown for all subjects and return list of cleaned file names."""
+    cleaned_all: List[str] = []
+    for subj_path in list_subjects(subjects_root):
+        merged_file = subj_path / f"{subj_path.name}_merged_medical_records.md"
+        if not merged_file.exists():
+            continue
+        try:
+            results = clean_merged_markdown_files(subj_path)
+            if isinstance(results, list):
+                cleaned_all.extend([f"{subj_path.name}/{fname}" for fname in results])
+        except Exception as e:
+            msg = f"Error cleaning subject {subj_path.name}: {e}"
+            if CONSOLE:
+                CONSOLE.print(f"[red]{msg}[/red]")
+            else:
+                print(msg)
+    return cleaned_all
+
+
+async def menu_markdown_utils(base_output_dir: str = "./pdf/output") -> None:
+    """Interactive submenu for merging and cleaning markdown outputs."""
+    def get_markdown_status() -> Dict[str, List[str]]:
+        status = {"merged": [], "cleaned": [], "unmerged": [], "uncleaned": []}
+        for subj in list_subjects(base_output_dir):
+            subject = subj.name
+            merged_file = subj / f"{subject}_merged_medical_records.md"
+            cleaned_file = subj / f"{subject}_merged_medical_records.cleaned.md"
+            if merged_file.exists():
+                status["merged"].append(subject)
+                if cleaned_file.exists():
+                    status["cleaned"].append(subject)
+                else:
+                    status["uncleaned"].append(subject)
+            else:
+                # there are parsed folders but no merged file
+                doc_folders = [d for d in subj.iterdir() if d.is_dir() and d.name not in {"merged"}]
+                if doc_folders:
+                    status["unmerged"].append(subject)
+        return status
+
+    while True:
+        if CONSOLE:
+            CONSOLE.rule("[bold magenta]Markdown Utilities")
+            options_table = Table(box=box.SIMPLE, show_header=False, padding=(0,1))
+            options_table.add_column("Opt", style="bold cyan", width=4, justify="right")
+            options_table.add_column("Action", style="white")
+            for k, label in [
+                ("1","Merge markdown for all subjects"),
+                ("2","Clean merged markdown for all subjects"),
+                ("3","Show latest report"),
+                ("4","Show merge/clean status"),
+                ("5","Merge single subject"),
+                ("6","Clean single subject"),
+                ("7","View subject history"),
+                ("0","Back")
+            ]:
+                options_table.add_row(k, label)
+            CONSOLE.print(options_table)
+            choice = Prompt.ask("Enter choice", choices=["0","1","2","3","4","5","6","7"], default="0")
+        else:
+            print("Markdown Utilities:\n 1) Merge all\n 2) Clean all\n 3) Latest report\n 4) Status\n 5) Merge subject\n 6) Clean subject\n 7) Subject history\n 0) Back")
+            choice = input("Choice: ").strip()
+
+        if choice == "0":
+            return
+        elif choice == "1":
+            subs = list_subjects(base_output_dir)
+            if not subs:
+                (CONSOLE.print(Panel("No subjects found", style="yellow")) if CONSOLE else print("No subjects found"))
+                continue
+            if CONSOLE and not Confirm.ask(f"Merge markdown for {len(subs)} subject(s)?"):
+                continue
+            processed = _merge_markdown_for_all(base_output_dir)
+            report_parser("merge_markdown", processed, [])
+        elif choice == "2":
+            subs = list_subjects(base_output_dir)
+            if not subs:
+                (CONSOLE.print(Panel("No subjects found", style="yellow")) if CONSOLE else print("No subjects found"))
+                continue
+            if CONSOLE and not Confirm.ask(f"Clean merged markdown for {len(subs)} subject(s)?"):
+                continue
+            cleaned_files = _clean_markdown_for_all(base_output_dir)
+            report_parser("clean_markdown", cleaned_files, [], details={"count_subjects": len(set(p.split('/')[0] for p in cleaned_files))})
+        elif choice == "3":
+            rep = latest_report()
+            if not rep:
+                (CONSOLE.print(Panel("No reports yet", style="yellow")) if CONSOLE else print("No reports yet"))
+            else:
+                cols = ["Timestamp","Event","Items","Errors"]
+                render_table("Latest Report", [[str(rep.get('timestamp','')), str(rep.get('event','')), str(rep.get('count_items','')), str(rep.get('count_errors',''))]], cols)
+                if rep.get('items'):
+                    render_table("Items", [[f] for f in rep['items']], ["Item"])
+        elif choice == "4":
+            status = get_markdown_status()
+            render_table("Markdown Status", [
+                ["Merged", str(len(status['merged']))],
+                ["Cleaned", str(len(status['cleaned']))],
+                ["Unmerged", str(len(status['unmerged']))],
+                ["Uncleaned", str(len(status['uncleaned']))],
+            ], ["Category","Count"])
+            if status['unmerged']:
+                render_table("Unmerged Subjects", [[s] for s in status['unmerged']], ["Subject"])
+            if status['uncleaned']:
+                render_table("Uncleaned Subjects", [[s] for s in status['uncleaned']], ["Subject"])
+        elif choice == "5":  # merge single
+            subj = Prompt.ask("Subject (4 digits)") if CONSOLE else input("Subject: ").strip()
+            subj_dir = Path(base_output_dir) / subj
+            if not subj_dir.exists():
+                (CONSOLE.print(Panel("Subject not found", style="red")) if CONSOLE else print("Subject not found"))
+                continue
+            if CONSOLE and not Confirm.ask(f"Merge markdown for subject {subj}?"):
+                continue
+            ok = merge_documents_by_subject(subj_dir)
+            report_parser("merge_markdown_subject", [subj], [] if ok else [subj])
+        elif choice == "6":  # clean single
+            subj = Prompt.ask("Subject (4 digits)") if CONSOLE else input("Subject: ").strip()
+            subj_dir = Path(base_output_dir) / subj
+            merged_file = subj_dir / f"{subj}_merged_medical_records.md"
+            if not merged_file.exists():
+                (CONSOLE.print(Panel("Merged file not found", style="red")) if CONSOLE else print("Merged file not found"))
+                continue
+            if CONSOLE and not Confirm.ask(f"Clean merged markdown for subject {subj}?"):
+                continue
+            cleaned = clean_merged_markdown_files(subj_dir)
+            cleaned_list = [f"{subj}/{f}" for f in cleaned] if isinstance(cleaned, list) else []
+            report_parser("clean_markdown_subject", cleaned_list, [], details={"subject": subj})
+        elif choice == "7":  # subject history
+            subj = Prompt.ask("Subject (4 digits)") if CONSOLE else input("Subject: ").strip()
+            subj_dir = Path(base_output_dir) / subj
+            hist = load_subject_history(subj_dir)
+            events = hist.get('events', [])
+            if not events:
+                (CONSOLE.print(Panel("No history", style="yellow")) if CONSOLE else print("No history"))
+            else:
+                rows = [[e.get('ts',''), e.get('type',''), json.dumps({k:v for k,v in e.items() if k not in {'ts','type'} })[:60]] for e in events[-20:]]
+                render_table(f"History {subj}", rows, ["Timestamp","Type","Data"])
+        # loop continues
+
+
+async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output") -> None:
+    """Top-level menu offering categories: parsing utilities and markdown utilities."""
+    while True:
+        if CONSOLE:
+            _print_banner()
+            # Dynamic reporting block
+            unparsed = list_unparsed_pdfs(pdf_dir)
+            parsed_subjects = list_subjects(base_output_dir)
+            md_status = compute_markdown_status(base_output_dir)
+            report_table = Table(title="Session Snapshot", box=box.SIMPLE, show_header=True, header_style="bold magenta")
+            report_table.add_column("Metric", style="cyan", no_wrap=True)
+            report_table.add_column("Count", style="bold yellow")
+            report_table.add_row("Unparsed PDFs", str(len(unparsed)))
+            report_table.add_row("Parsed Subjects", str(len(parsed_subjects)))
+            report_table.add_row("Subjects w/ parsed not merged", str(len(md_status['unmerged'])))
+            report_table.add_row("Merged not cleaned", str(len(md_status['uncleaned'])))
+            CONSOLE.print(report_table)
+            # Optionally list subsets if small
+            def maybe_list(label: str, items: List[str]):
+                if not CONSOLE:
+                    return
+                if items and len(items) <= 15:
+                    CONSOLE.print(Panel("\n".join(items), title=label, border_style="blue"))
+            maybe_list("Unparsed PDFs", [p.name for p in unparsed])
+            maybe_list("Unmerged Subjects", md_status['unmerged'])
+            maybe_list("Uncleaned Subjects", md_status['uncleaned'])
+            top = Table(show_header=False, box=box.SIMPLE_HEAVY, padding=(0,1))
+            top.add_column("Opt", style="bold cyan", width=4, justify="right")
+            top.add_column("Category", style="white")
+            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","Full Statistics"),("4","Exit")]:
+                top.add_row(k,label)
+            CONSOLE.print(top)
+            choice = Prompt.ask("Select", choices=["1","2","3","4"], default="4")
+        else:
+            print("Unparsed PDFs:")
+            for p in list_unparsed_pdfs(pdf_dir):
+                print(f"  - {p.name}")
+            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) Full Statistics\n4) Exit")
+            choice = input("Choice: ").strip()
+        if choice == "4":
+            if CONSOLE:
+                CONSOLE.print("[green]Goodbye![/green]")
+            break
+        if choice == "1":
+            await menu_llamaparse(pdf_dir=pdf_dir, base_output_dir=base_output_dir)
+        elif choice == "2":
+            await menu_markdown_utils(base_output_dir=base_output_dir)
+        elif choice == "3":
+            # Full statistics view
+            if CONSOLE:
+                stats_panel = Table(title="Full Statistics", box=box.MINIMAL_DOUBLE_HEAD, header_style="bold magenta")
+                stats_panel.add_column("Category", style="cyan")
+                stats_panel.add_column("Value", style="bold yellow")
+                # Gather deeper stats
+                unparsed = list_unparsed_pdfs(pdf_dir)
+                subjects = list_subjects(base_output_dir)
+                md_status = compute_markdown_status(base_output_dir)
+                parsed_files = list_parsed_files(base_output_dir)
+                stats_panel.add_row("Total PDFs (root)", str(len(list(Path(pdf_dir).glob('*.pdf')))))
+                stats_panel.add_row("Unparsed PDFs", str(len(unparsed)))
+                stats_panel.add_row("Subjects (parsed dir)", str(len(subjects)))
+                stats_panel.add_row("Total Parsed Document Folders", str(len(parsed_files)))
+                stats_panel.add_row("Subjects Merged", str(len(md_status['merged'])))
+                stats_panel.add_row("Subjects Cleaned", str(len(md_status['cleaned'])))
+                stats_panel.add_row("Subjects Unmerged", str(len(md_status['unmerged'])))
+                stats_panel.add_row("Subjects Uncleaned", str(len(md_status['uncleaned'])))
+                CONSOLE.print(stats_panel)
+                # Detailed lists (folded if large)
+                def list_section(title: str, items: List[str]):
+                    if not items or not CONSOLE:
+                        return
+                    if len(items) > 30:
+                        head = items[:15]; tail = items[-5:]
+                        body = "\n".join(head + ["...", f"(total {len(items)} items)"] + tail)
+                    else:
+                        body = "\n".join(items)
+                    CONSOLE.print(Panel(body, title=title, border_style="blue"))
+                list_section("Parsed Document Folders", [p.name for p in parsed_files])
+                list_section("Merged Subjects", md_status['merged'])
+                list_section("Cleaned Subjects", md_status['cleaned'])
+                list_section("Unmerged Subjects", md_status['unmerged'])
+                list_section("Uncleaned Subjects", md_status['uncleaned'])
+            else:
+                print("Full Statistics:")
+                # Basic textual fallback
+                print(f"Unparsed PDFs: {len(list_unparsed_pdfs(pdf_dir))}")
+                print(f"Subjects: {len(list_subjects(base_output_dir))}")
+                md_status = compute_markdown_status(base_output_dir)
+                print(f"Merged Subjects: {len(md_status['merged'])}")
+                print(f"Cleaned Subjects: {len(md_status['cleaned'])}")
+                print(f"Unmerged Subjects: {len(md_status['unmerged'])}")
+                print(f"Uncleaned Subjects: {len(md_status['uncleaned'])}")
 
 
 def save_markdown_documents(markdown_documents, output_dir):
@@ -200,6 +1005,7 @@ async def process_subject_batch(subject, pdf_files, base_output_dir):
     """
     Process all PDF files for a subject using batch parsing
     """
+    ic("parse_start", {"subject": subject, "file_count": len(pdf_files)})
     print(f"\n=== Processing Subject {subject} ===")
     print(f"Files: {[f.name for f in pdf_files]}")
     
@@ -213,26 +1019,27 @@ async def process_subject_batch(subject, pdf_files, base_output_dir):
     try:
         # Batch parse all files for this subject
         print(f"Starting batch parsing of {len(pdf_paths)} files...")
-        results = await parser.aparse(pdf_paths)
-        
+        # aparse expects a sequence of FileInput; runtime library accepts list[str] paths.
+        results = await parser.aparse(pdf_paths)  # type: ignore[arg-type]
+
         # Handle batch results (should be a list of JobResult objects)
         if not isinstance(results, list):
             results = [results]
-        
+
         print(f"Got {len(results)} results from batch processing")
-        
+
         # Process each result
         for i, result in enumerate(results):
             file_name = pdf_files[i].stem  # filename without extension
             print(f"\nProcessing result {i+1}/{len(results)} for file: {file_name}")
-            
+
             # Create output directory for this specific file
             file_output_dir = subject_output_dir / file_name
-            
+
             # Save debug information
             debug_file = file_output_dir / "results_debug.json"
             debug_file.parent.mkdir(parents=True, exist_ok=True)
-            
+
             try:
                 debug_data = {
                     "file_name": file_name,
@@ -240,34 +1047,34 @@ async def process_subject_batch(subject, pdf_files, base_output_dir):
                     "result_type": str(type(result)),
                     "attributes": [attr for attr in dir(result) if not attr.startswith('_')],
                 }
-                
+
                 if hasattr(result, 'pages'):
                     try:
                         if isinstance(result.pages, list):
                             debug_data["pages_count"] = len(result.pages)
                         else:
                             debug_data["pages_info"] = str(result.pages)
-                    except:
+                    except Exception:
                         debug_data["pages_info"] = "Cannot determine pages info"
-                
+
                 with open(debug_file, 'w', encoding='utf-8') as f:
                     json.dump(debug_data, f, indent=2, ensure_ascii=False, default=str)
                 print(f"Saved debug results to: {debug_file}")
-                
+
             except Exception as e:
                 print(f"Error saving debug results: {e}")
-            
+
             # Process the result if it has pages
             if hasattr(result, 'pages'):
                 try:
                     pages_count = len(result.pages) if isinstance(result.pages, list) else "unknown"
                     print(f"  Processing {pages_count} pages...")
-                except:
+                except Exception:
                     print("  Processing pages...")
-                
+
                 # Save all page data (text, markdown, layout, structured data)
                 save_page_data(result.pages, file_output_dir)
-                
+
                 # Get and save the llama-index documents
                 try:
                     markdown_documents = result.get_markdown_documents(split_by_page=True)
@@ -290,15 +1097,25 @@ async def process_subject_batch(subject, pdf_files, base_output_dir):
                     save_images(image_documents, file_output_dir)
                 except Exception as e:
                     print(f"  Error getting image documents: {e}")
-                
+
                 print(f"  ✅ Completed processing for {file_name}")
             else:
                 print(f"  ⚠️  Result for {file_name} has no pages attribute")
-        
+
+        # Record subject-level parse event with file hashes
+        append_subject_event(subject_output_dir, "parse", {
+            "files": collect_subject_file_hashes(pdf_files),
+            "result_count": len(results)
+        })
+        append_subject_log(subject_output_dir, "parse", {
+            "files": collect_subject_file_hashes(pdf_files),
+            "result_count": len(results)
+        })
+        ic("parse_complete", {"subject": subject, "results": len(results)})
         print(f"\n✅ Subject {subject} batch processing completed!")
         print(f"Results saved to: {subject_output_dir}")
         return True
-        
+
     except Exception as e:
         print(f"❌ Error processing subject {subject}: {e}")
         return False
@@ -397,6 +1214,7 @@ def merge_documents_by_subject(subject_output_dir):
     subject_path = Path(subject_output_dir)
     subject_name = subject_path.name
     
+    ic("merge_start", {"subject": subject_name})
     print(f"\n=== Merging documents for Subject {subject_name} ===")
     
     # Categorize documents
@@ -486,6 +1304,17 @@ def merge_documents_by_subject(subject_output_dir):
             f.write("\n".join(merged_content))
         
         print(f"  ✅ Merged document saved: {merged_file}")
+        append_subject_event(subject_path, "merge", {
+            "output_file": merged_file.name,
+            "total_documents": total_docs,
+            "doc_types": {k: len(v['folders']) for k, v in doc_types.items()}
+        })
+        append_subject_log(subject_path, "merge", {
+            "output_file": merged_file.name,
+            "total_documents": total_docs,
+            "doc_types": {k: len(v['folders']) for k, v in doc_types.items()}
+        })
+        ic("merge_complete", {"subject": subject_name, "docs": total_docs})
         
         # Create a summary
         summary_lines = [
@@ -556,11 +1385,14 @@ def process_all_subjects_markdown(base_output_dir):
     print(f"📁 Total subjects: {len(subject_dirs)}")
 
 
-def clean_merged_markdown_files(base_output_dir):
+def clean_merged_markdown_files(base_output_dir: str | Path):
+    """Clean merged markdown files by removing hospital-specific expressions.
+
+    Supports being called with either the root output directory (cleans all subjects)
+    or a specific subject directory. Always writes a cleaned file (even if unchanged)
+    to make downstream tooling deterministic. Returns list of cleaned file names.
     """
-    Clean merged markdown files by removing hospital-specific expressions
-    """
-    print(f"\n=== Cleaning Merged Markdown Files ===")
+    print(f"\n=== Cleaning Merged Markdown Files (non-destructive) ===")
     
     # Define expressions to remove
     expressions_to_remove = [
@@ -581,80 +1413,73 @@ def clean_merged_markdown_files(base_output_dir):
         print(f"Output directory not found: {base_output_dir}")
         return 0
     
-    # Find all subject directories (4-digit numbers)
-    subject_dirs = [d for d in base_path.iterdir() 
-                   if d.is_dir() and d.name.isdigit() and len(d.name) == 4]
+    # Determine scope: single subject dir or all subjects
+    if base_path.name.isdigit() and len(base_path.name) == 4 and (base_path / f"{base_path.name}_merged_medical_records.md").parent.exists():
+        subject_dirs = [base_path]
+    else:
+        subject_dirs = [d for d in base_path.iterdir() if d.is_dir() and d.name.isdigit() and len(d.name) == 4]
     
     if not subject_dirs:
         print("No subject directories found")
         return 0
     
-    cleaned_files = 0
+    cleaned_files: List[str] = []
     total_removals = 0
     
     for subject_dir in subject_dirs:
         subject = subject_dir.name
         merged_file = subject_dir / f"{subject}_merged_medical_records.md"
-        
+        cleaned_file = subject_dir / f"{subject}_merged_medical_records.cleaned.md"
+
         if not merged_file.exists():
             print(f"  ⚠️  No merged file found for subject {subject}")
             continue
-        
+
         try:
-            # Read the current content
             with open(merged_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
             original_content = content
             file_removals = 0
-            
-            # Remove each expression
             for expression in expressions_to_remove:
                 count_before = content.count(expression)
                 if count_before > 0:
                     content = content.replace(expression, "")
                     file_removals += count_before
                     print(f"    - Removed '{expression}' ({count_before} occurrences)")
-            
-            # Clean up extra whitespace and empty lines
             lines = content.split('\n')
-            cleaned_lines = []
-            
+            cleaned_lines: List[str] = []
             for line in lines:
-                # Remove tabs and whitespaces at the beginning of lines
                 cleaned_line = line.lstrip(' \t')
-                
-                # Remove lines that are only whitespace
                 stripped_line = cleaned_line.strip()
                 if stripped_line or (cleaned_lines and cleaned_lines[-1].strip()):
-                    # Keep the line if it has content, or if it's an empty line 
-                    # but the previous line had content (to preserve intentional spacing)
                     cleaned_lines.append(cleaned_line)
-            
-            # Remove trailing empty lines
             while cleaned_lines and not cleaned_lines[-1].strip():
                 cleaned_lines.pop()
-            
             content = '\n'.join(cleaned_lines)
-            
-            # Only write if content changed
-            if content != original_content:
-                with open(merged_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                cleaned_files += 1
-                total_removals += file_removals
-                print(f"  ✅ Cleaned {merged_file.name} ({file_removals} expressions removed)")
-            else:
-                print(f"  📭 No changes needed for {merged_file.name}")
-                
+            # Always write cleaned file for determinism
+            with open(cleaned_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            cleaned_files.append(cleaned_file.name)
+            total_removals += file_removals
+            status_msg = "(modified)" if content != original_content else "(no changes)"
+            print(f"  ✅ Cleaned -> {cleaned_file.name} {status_msg}; expressions removed: {file_removals}")
+            append_subject_event(subject_dir, "clean", {
+                "source": merged_file.name,
+                "output": cleaned_file.name,
+                "expressions_removed": file_removals
+            })
+            append_subject_log(subject_dir, "clean", {
+                "source": merged_file.name,
+                "output": cleaned_file.name,
+                "expressions_removed": file_removals
+            })
+            ic("clean_complete", {"subject": subject, "removed": file_removals})
         except Exception as e:
             print(f"  ❌ Error cleaning {merged_file.name}: {e}")
     
     print(f"\n📊 Cleaning Summary:")
-    print(f"  ✅ Files cleaned: {cleaned_files}/{len(subject_dirs)}")
+    print(f"  ✅ Files cleaned: {len(cleaned_files)}/{len(subject_dirs)} (cleaned copies written)")
     print(f"  🧹 Total expressions removed: {total_removals}")
-    
     return cleaned_files
 
 
@@ -695,6 +1520,11 @@ Examples:
         '--clean-only', 
         action='store_true', 
         help='Only clean merged markdown files (remove hospital info)'
+    )
+    parser.add_argument(
+        '--menu',
+        action='store_true',
+        help='Launch interactive menu (overrides other workflow flags)'
     )
     
     # Control flags
@@ -855,6 +1685,13 @@ def get_processing_plan(args, pdf_dir, base_output_dir):
 async def main():
     # Parse command line arguments
     args = parse_arguments()
+
+    # If interactive menu requested, launch it and exit
+    if getattr(args, 'menu', False):
+        if CONSOLE:
+            CONSOLE.print(Panel("Launching Interactive Menu", style="cyan", title="CLI"))
+        await menu_root()
+        return
     
     print("🔥 PDF Parser with LlamaParse - Advanced Workflow")
     print(f"LLAMA_CLOUD_API_KEY: {LLAMA_CLOUD_API_KEY}")
@@ -992,9 +1829,11 @@ async def main():
     # Step 4: Clean markdown files if needed
     if args.clean_only or args.full:
         print(f"\n=== Step 4: Markdown Cleaning ===")
-        cleaned_count = clean_merged_markdown_files(base_output_dir)
+        cleaned_files_list = clean_merged_markdown_files(base_output_dir)
+        cleaned_count = len(cleaned_files_list) if isinstance(cleaned_files_list, list) else 0
         if cleaned_count > 0:
-            print(f"🧹 Markdown Cleaning: Cleaned {cleaned_count} files")
+            print(f"🧹 Markdown Cleaning: Created {cleaned_count} cleaned file(s)")
+            report_parser("clean_markdown", cleaned_files_list if isinstance(cleaned_files_list, list) else [], [])
         else:
             print("🧹 Markdown Cleaning: No files needed cleaning")
     else:
