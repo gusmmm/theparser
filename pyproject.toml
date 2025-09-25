@@ -1,0 +1,11 @@
+[project]
+name = "theparser"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "llama-cloud-services>=0.6.69",
+    "llama-parse>=0.6.69",
+    "python-dotenv>=1.1.1",
+]
