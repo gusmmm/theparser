@@ -556,6 +556,108 @@ def process_all_subjects_markdown(base_output_dir):
     print(f"📁 Total subjects: {len(subject_dirs)}")
 
 
+def clean_merged_markdown_files(base_output_dir):
+    """
+    Clean merged markdown files by removing hospital-specific expressions
+    """
+    print(f"\n=== Cleaning Merged Markdown Files ===")
+    
+    # Define expressions to remove
+    expressions_to_remove = [
+        "ULS DE SAO JOAO, E.P.E.",
+        "H. SAO JOAO",
+        "ALAMEDA PROF. HERNANI MONTEIRO",
+        "4200-319 PORTO",
+        "Tel. : 225512100  Email:",
+        "Tel.: 225512100",
+        "Processado por computador - SClínico",
+        "Email:",
+        "SÃO JOÃO"
+    ]
+    
+    base_path = Path(base_output_dir)
+    
+    if not base_path.exists():
+        print(f"Output directory not found: {base_output_dir}")
+        return 0
+    
+    # Find all subject directories (4-digit numbers)
+    subject_dirs = [d for d in base_path.iterdir() 
+                   if d.is_dir() and d.name.isdigit() and len(d.name) == 4]
+    
+    if not subject_dirs:
+        print("No subject directories found")
+        return 0
+    
+    cleaned_files = 0
+    total_removals = 0
+    
+    for subject_dir in subject_dirs:
+        subject = subject_dir.name
+        merged_file = subject_dir / f"{subject}_merged_medical_records.md"
+        
+        if not merged_file.exists():
+            print(f"  ⚠️  No merged file found for subject {subject}")
+            continue
+        
+        try:
+            # Read the current content
+            with open(merged_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            original_content = content
+            file_removals = 0
+            
+            # Remove each expression
+            for expression in expressions_to_remove:
+                count_before = content.count(expression)
+                if count_before > 0:
+                    content = content.replace(expression, "")
+                    file_removals += count_before
+                    print(f"    - Removed '{expression}' ({count_before} occurrences)")
+            
+            # Clean up extra whitespace and empty lines
+            lines = content.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                # Remove tabs and whitespaces at the beginning of lines
+                cleaned_line = line.lstrip(' \t')
+                
+                # Remove lines that are only whitespace
+                stripped_line = cleaned_line.strip()
+                if stripped_line or (cleaned_lines and cleaned_lines[-1].strip()):
+                    # Keep the line if it has content, or if it's an empty line 
+                    # but the previous line had content (to preserve intentional spacing)
+                    cleaned_lines.append(cleaned_line)
+            
+            # Remove trailing empty lines
+            while cleaned_lines and not cleaned_lines[-1].strip():
+                cleaned_lines.pop()
+            
+            content = '\n'.join(cleaned_lines)
+            
+            # Only write if content changed
+            if content != original_content:
+                with open(merged_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                cleaned_files += 1
+                total_removals += file_removals
+                print(f"  ✅ Cleaned {merged_file.name} ({file_removals} expressions removed)")
+            else:
+                print(f"  📭 No changes needed for {merged_file.name}")
+                
+        except Exception as e:
+            print(f"  ❌ Error cleaning {merged_file.name}: {e}")
+    
+    print(f"\n📊 Cleaning Summary:")
+    print(f"  ✅ Files cleaned: {cleaned_files}/{len(subject_dirs)}")
+    print(f"  🧹 Total expressions removed: {total_removals}")
+    
+    return cleaned_files
+
+
 def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
@@ -567,6 +669,7 @@ Examples:
   python main.py --full             # Run full workflow explicitly
   python main.py --parse-only       # Only parse PDFs with LlamaParse
   python main.py --merge-only       # Only merge markdown files
+  python main.py --clean-only       # Only clean merged markdown files
   python main.py --force            # Force processing, skip all checkpoints
         """
     )
@@ -587,6 +690,11 @@ Examples:
         '--merge-only', 
         action='store_true', 
         help='Only run markdown merging (skip PDF parsing)'
+    )
+    mode_group.add_argument(
+        '--clean-only', 
+        action='store_true', 
+        help='Only clean merged markdown files (remove hospital info)'
     )
     
     # Control flags
@@ -611,7 +719,7 @@ Examples:
     args = parser.parse_args()
     
     # Default to full workflow if no mode specified
-    if not any([args.full, args.parse_only, args.merge_only]):
+    if not any([args.full, args.parse_only, args.merge_only, args.clean_only]):
         args.full = True
     
     return args
@@ -757,11 +865,13 @@ async def main():
     
     # Show current mode
     if args.full:
-        mode = "Full Workflow (PDF Parsing + Markdown Merging)"
+        mode = "Full Workflow (PDF Parsing + Markdown Merging + Cleaning)"
     elif args.parse_only:
         mode = "PDF Parsing Only"
     elif args.merge_only:
         mode = "Markdown Merging Only"
+    elif args.clean_only:
+        mode = "Markdown Cleaning Only"
     
     print(f"🎯 Mode: {mode}")
     print(f"⚡ Force processing: {'Yes' if args.force else 'No'}")
@@ -775,6 +885,7 @@ async def main():
     print(f"\n📋 Processing Plan:")
     print(f"  📄 Parse PDFs: {'Yes' if plan['parse_pdfs'] else 'No'}")
     print(f"  📝 Merge Markdown: {'Yes' if plan['merge_markdown'] else 'No'}")
+    print(f"  🧹 Clean Markdown: {'Yes' if args.clean_only or args.full else 'No'}")
     
     if plan['skip_reasons']:
         print(f"\n⏭️  Skipping reasons:")
@@ -878,7 +989,19 @@ async def main():
     if plan['merge_markdown']:
         print(f"📝 Markdown Merging: Processed {len(plan['subjects_to_merge'])} subjects")
     
-    if not plan['parse_pdfs'] and not plan['merge_markdown']:
+    # Step 4: Clean markdown files if needed
+    if args.clean_only or args.full:
+        print(f"\n=== Step 4: Markdown Cleaning ===")
+        cleaned_count = clean_merged_markdown_files(base_output_dir)
+        if cleaned_count > 0:
+            print(f"🧹 Markdown Cleaning: Cleaned {cleaned_count} files")
+        else:
+            print("🧹 Markdown Cleaning: No files needed cleaning")
+    else:
+        print(f"\n=== Step 4: Markdown Cleaning (Skipped) ===")
+        print("🧹 No markdown cleaning needed based on current plan")
+    
+    if not plan['parse_pdfs'] and not plan['merge_markdown'] and not (args.clean_only or args.full):
         print("📭 Nothing to process - all outputs are up to date!")
         print("💡 Use --force to reprocess existing files")
     

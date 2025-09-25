@@ -119,6 +119,14 @@ python main.py --merge-only
 - Skips PDF parsing
 - Useful after manual processing or when only merging is needed
 
+#### 4. **Markdown Cleaning Only**
+```bash
+python main.py --clean-only
+```
+- Only cleans merged markdown files
+- Removes hospital-specific information (headers, addresses, etc.)
+- Useful for sanitizing documents for external sharing
+
 ### Control Options
 
 #### Force Processing
@@ -126,6 +134,7 @@ python main.py --merge-only
 python main.py --force
 python main.py --parse-only --force
 python main.py --merge-only --force
+python main.py --clean-only
 ```
 Bypasses all checkpoints and reprocesses everything.
 
@@ -224,6 +233,18 @@ The system intelligently skips work that's already been completed:
 - ✅ **Already merged** → Skip if merged file exists and has content
 - 💪 **Force mode** → Override all checkpoints
 
+### Document Cleaning
+- Automatic removal of hospital-specific information:
+  - Hospital names and addresses
+  - Phone numbers and email addresses
+  - System-generated footers
+  - Administrative headers
+- Text formatting cleanup:
+  - Removes leading tabs and whitespaces from all lines
+  - Cleans up excess empty lines
+  - Maintains proper markdown structure
+- Preserves medical content while sanitizing identifying information
+
 ### Error Handling
 - Graceful handling of parsing errors
 - Detailed error reporting
@@ -285,6 +306,9 @@ python main.py  # Only processes new files
 
 # Regenerate merged documents only
 python main.py --merge-only --force
+
+# Clean merged documents (remove hospital info)
+python main.py --clean-only
 
 # Reprocess everything
 python main.py --force
