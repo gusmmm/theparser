@@ -786,11 +786,12 @@ async def menu_markdown_utils(base_output_dir: str = "./pdf/output") -> None:
                 ("6","Clean single subject"),
                 ("7","View subject history"),
                 ("8","Merge only unmerged subjects"),
+                ("9","Clean only uncleaned subjects"),
                 ("0","Back")
             ]:
                 options_table.add_row(k, label)
             CONSOLE.print(options_table)
-            choice = Prompt.ask("Enter choice", choices=["0","1","2","3","4","5","6","7","8"], default="0")
+            choice = Prompt.ask("Enter choice", choices=["0","1","2","3","4","5","6","7","8","9"], default="0")
         else:
             print("Markdown Utilities:\n 1) Merge all\n 2) Clean all\n 3) Latest report\n 4) Status\n 5) Merge subject\n 6) Clean subject\n 7) Subject history\n 0) Back")
             choice = input("Choice: ").strip()
@@ -895,6 +896,35 @@ async def menu_markdown_utils(base_output_dir: str = "./pdf/output") -> None:
             report_parser("merge_unmerged_subjects", unmerged_subjects, [], details={"success": merge_successful, "failed": merge_failed})
             if CONSOLE:
                 CONSOLE.print(Panel(f"Merged {merge_successful} subjects, failed {merge_failed}", title="Merge Unmerged", style="green"))
+        elif choice == "9":  # clean only uncleaned subjects
+            status = get_markdown_status()
+            uncleaned_subjects = status.get('uncleaned', [])
+            if not uncleaned_subjects:
+                (CONSOLE.print(Panel("No uncleaned subjects found", style="green")) if CONSOLE else print("No uncleaned subjects found"))
+                continue
+            if CONSOLE and not Confirm.ask(f"Clean merged markdown for {len(uncleaned_subjects)} subject(s)?"):
+                continue
+            cleaned_files: List[str] = []
+            clean_successful = 0
+            clean_failed = 0
+            for subj in uncleaned_subjects:
+                try:
+                    subj_dir = Path(base_output_dir) / subj
+                    result = clean_merged_markdown_files(subj_dir)
+                    if isinstance(result, list) and result:
+                        cleaned_files.extend([f"{subj}/{name}" for name in result])
+                        clean_successful += 1
+                    else:
+                        clean_failed += 1
+                except Exception as e:
+                    clean_failed += 1
+                    if CONSOLE:
+                        CONSOLE.print(f"[red]Error cleaning subject {subj}: {e}[/red]")
+                    else:
+                        print(f"Error cleaning subject {subj}: {e}")
+            report_parser("clean_uncleaned_subjects", cleaned_files, [], details={"subjects": uncleaned_subjects, "success": clean_successful, "failed": clean_failed})
+            if CONSOLE:
+                CONSOLE.print(Panel(f"Cleaned {clean_successful} subjects, failed {clean_failed}", title="Clean Uncleaned", style="green"))
         # loop continues
 
 
