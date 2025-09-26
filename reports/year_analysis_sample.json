@@ -1,0 +1,47 @@
+{
+  "by_year": {
+    "2025": {
+      "subjects": [
+        {
+          "id": "2503",
+          "year": 2025,
+          "serial": "03",
+          "document_types": {
+            "A": 1,
+            "E": 1
+          },
+          "processing_status": {
+            "parsed": true,
+            "merged": true,
+            "cleaned": true
+          },
+          "total_documents": 2
+        }
+      ],
+      "total_count": 1,
+      "document_types": {
+        "A": 1,
+        "E": 1,
+        "BIC": 0,
+        "O": 0
+      },
+      "processing_status": {
+        "parsed": 1,
+        "merged": 1,
+        "cleaned": 1
+      }
+    }
+  },
+  "summary": {
+    "total_subjects": 1,
+    "years_covered": [
+      2025
+    ],
+    "document_types": {
+      "A": 1,
+      "E": 1,
+      "BIC": 0,
+      "O": 0
+    }
+  }
+}

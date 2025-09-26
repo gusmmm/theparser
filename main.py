@@ -320,6 +320,143 @@ def compute_markdown_status(base_output_dir: str = "./pdf/output") -> Dict[str, 
     return status
 
 
+def extract_year_from_subject(subject: str) -> int:
+    """Extract year from subject ID based on digit count rules."""
+    if len(subject) == 4:
+        # 4 digits: first 2 are year (e.g., 2401 -> 2024)
+        year_digits = subject[:2]
+        return 2000 + int(year_digits)
+    elif len(subject) == 3:
+        # 3 digits: first digit is year (e.g., 901 -> 2009)
+        year_digit = subject[0]
+        return 2000 + int(year_digit)
+    else:
+        # Fallback for unexpected formats
+        return 2000
+
+
+def analyze_subjects_by_year(base_output_dir: str = "./pdf/output") -> Dict[str, Any]:
+    """Analyze processed subjects by year with detailed document type and processing status.
+
+    Adds per-year serial statistics: min_serial, max_serial, and missing_serials (zero-padded strings).
+    """
+    base = Path(base_output_dir)
+    analysis = {
+        "by_year": {},
+        "summary": {
+            "total_subjects": 0,
+            "years_covered": set(),
+            "document_types": {"A": 0, "E": 0, "BIC": 0, "O": 0},
+        }
+    }
+    
+    for subj_path in list_subjects(base_output_dir):
+        subject = subj_path.name
+        year = extract_year_from_subject(subject)
+        analysis["summary"]["years_covered"].add(year)
+        analysis["summary"]["total_subjects"] += 1
+        
+        if year not in analysis["by_year"]:
+            analysis["by_year"][year] = {
+                "subjects": [],
+                "total_count": 0,
+                "document_types": {"A": 0, "E": 0, "BIC": 0, "O": 0},
+                "processing_status": {"parsed": 0, "merged": 0, "cleaned": 0},
+                # Serial stats, computed after collecting subjects
+                "min_serial": None,
+                "max_serial": None,
+                "missing_serials": [],
+            }
+        
+        year_data = analysis["by_year"][year]
+        year_data["total_count"] += 1
+        
+        # Analyze document types in this subject
+        doc_types_found = {"A": [], "E": [], "BIC": [], "O": []}
+        for item in subj_path.iterdir():
+            if item.is_dir() and item.name not in {'merged', '__pycache__'}:
+                folder_name = item.name
+                # Determine document type by suffix
+                if folder_name.endswith('BIC'):
+                    doc_types_found['BIC'].append(folder_name)
+                    year_data["document_types"]["BIC"] += 1
+                    analysis["summary"]["document_types"]["BIC"] += 1
+                elif folder_name.endswith('E'):
+                    doc_types_found['E'].append(folder_name)
+                    year_data["document_types"]["E"] += 1
+                    analysis["summary"]["document_types"]["E"] += 1
+                elif folder_name.endswith('A'):
+                    doc_types_found['A'].append(folder_name)
+                    year_data["document_types"]["A"] += 1
+                    analysis["summary"]["document_types"]["A"] += 1
+                elif folder_name.endswith('O'):
+                    doc_types_found['O'].append(folder_name)
+                    year_data["document_types"]["O"] += 1
+                    analysis["summary"]["document_types"]["O"] += 1
+        
+        # Check processing status
+        has_parsed = any(
+            (subj_path / doc).is_dir() and (subj_path / doc / 'markdown').exists()
+            for doc_type_list in doc_types_found.values()
+            for doc in doc_type_list
+        )
+        merged_file = subj_path / f"{subject}_merged_medical_records.md"
+        cleaned_file = subj_path / f"{subject}_merged_medical_records.cleaned.md"
+        
+        processing_status = {
+            "parsed": has_parsed,
+            "merged": merged_file.exists(),
+            "cleaned": cleaned_file.exists()
+        }
+        
+        if processing_status["parsed"]:
+            year_data["processing_status"]["parsed"] += 1
+        if processing_status["merged"]:
+            year_data["processing_status"]["merged"] += 1
+        if processing_status["cleaned"]:
+            year_data["processing_status"]["cleaned"] += 1
+        
+        # Store subject details
+        subject_info = {
+            "id": subject,
+            "year": year,
+            "serial": subject[2:] if len(subject) == 4 else subject[1:],
+            "document_types": {k: len(v) for k, v in doc_types_found.items() if v},
+            "processing_status": processing_status,
+            "total_documents": sum(len(v) for v in doc_types_found.values())
+        }
+        year_data["subjects"].append(subject_info)
+    
+    # Sort subjects within each year
+    for y, year_data in analysis["by_year"].items():
+        year_data["subjects"].sort(key=lambda x: x["id"])
+        # Compute serial stats
+        serial_ints: List[int] = []
+        for s in year_data["subjects"]:
+            try:
+                serial_ints.append(int(s["serial"]))
+            except Exception:
+                continue
+        if serial_ints:
+            mn = min(serial_ints)
+            mx = max(serial_ints)
+            present = set(serial_ints)
+            missing = [i for i in range(mn, mx + 1) if i not in present]
+            # Store zero-padded two-digit strings for missing
+            year_data["min_serial"] = mn
+            year_data["max_serial"] = mx
+            year_data["missing_serials"] = [f"{i:02d}" for i in missing]
+        else:
+            year_data["min_serial"] = None
+            year_data["max_serial"] = None
+            year_data["missing_serials"] = []
+    
+    # Convert set to sorted list for JSON serialization
+    analysis["summary"]["years_covered"] = sorted(list(analysis["summary"]["years_covered"]))
+    
+    return analysis
+
+
 def summarize_subject_logs(base_output_dir: str = "./pdf/output") -> Dict[str, Any]:
     """Aggregate subject_log.json files to provide project-wide statistics."""
     base = Path(base_output_dir)
@@ -648,11 +785,12 @@ async def menu_markdown_utils(base_output_dir: str = "./pdf/output") -> None:
                 ("5","Merge single subject"),
                 ("6","Clean single subject"),
                 ("7","View subject history"),
+                ("8","Merge only unmerged subjects"),
                 ("0","Back")
             ]:
                 options_table.add_row(k, label)
             CONSOLE.print(options_table)
-            choice = Prompt.ask("Enter choice", choices=["0","1","2","3","4","5","6","7"], default="0")
+            choice = Prompt.ask("Enter choice", choices=["0","1","2","3","4","5","6","7","8"], default="0")
         else:
             print("Markdown Utilities:\n 1) Merge all\n 2) Clean all\n 3) Latest report\n 4) Status\n 5) Merge subject\n 6) Clean subject\n 7) Subject history\n 0) Back")
             choice = input("Choice: ").strip()
@@ -730,6 +868,33 @@ async def menu_markdown_utils(base_output_dir: str = "./pdf/output") -> None:
             else:
                 rows = [[e.get('ts',''), e.get('type',''), json.dumps({k:v for k,v in e.items() if k not in {'ts','type'} })[:60]] for e in events[-20:]]
                 render_table(f"History {subj}", rows, ["Timestamp","Type","Data"])
+        elif choice == "8":  # merge only unmerged subjects
+            status = compute_markdown_status(base_output_dir)
+            unmerged_subjects = status.get('unmerged', [])
+            if not unmerged_subjects:
+                (CONSOLE.print(Panel("No unmerged subjects found", style="green")) if CONSOLE else print("No unmerged subjects found"))
+                continue
+            if CONSOLE and not Confirm.ask(f"Merge markdown for {len(unmerged_subjects)} unmerged subject(s)?"):
+                continue
+            merge_successful = 0
+            merge_failed = 0
+            for subj in unmerged_subjects:
+                try:
+                    subj_dir = Path(base_output_dir) / subj
+                    ok = merge_documents_by_subject(subj_dir)
+                    if ok:
+                        merge_successful += 1
+                    else:
+                        merge_failed += 1
+                except Exception as e:
+                    merge_failed += 1
+                    if CONSOLE:
+                        CONSOLE.print(f"[red]Error merging subject {subj}: {e}[/red]")
+                    else:
+                        print(f"Error merging subject {subj}: {e}")
+            report_parser("merge_unmerged_subjects", unmerged_subjects, [], details={"success": merge_successful, "failed": merge_failed})
+            if CONSOLE:
+                CONSOLE.print(Panel(f"Merged {merge_successful} subjects, failed {merge_failed}", title="Merge Unmerged", style="green"))
         # loop continues
 
 
@@ -738,18 +903,35 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
     while True:
         if CONSOLE:
             _print_banner()
-            # Dynamic reporting block
+            # Dynamic reporting block with year overview
             unparsed = list_unparsed_pdfs(pdf_dir)
             parsed_subjects = list_subjects(base_output_dir)
             md_status = compute_markdown_status(base_output_dir)
+            analysis = analyze_subjects_by_year(base_output_dir)
+            
             report_table = Table(title="Session Snapshot", box=box.SIMPLE, show_header=True, header_style="bold magenta")
             report_table.add_column("Metric", style="cyan", no_wrap=True)
             report_table.add_column("Count", style="bold yellow")
             report_table.add_row("Unparsed PDFs", str(len(unparsed)))
             report_table.add_row("Parsed Subjects", str(len(parsed_subjects)))
+            report_table.add_row("Years Covered", str(len(analysis['summary']['years_covered'])) if analysis['summary']['years_covered'] else "0")
             report_table.add_row("Subjects w/ parsed not merged", str(len(md_status['unmerged'])))
             report_table.add_row("Merged not cleaned", str(len(md_status['uncleaned'])))
             CONSOLE.print(report_table)
+            
+            # Quick year overview if we have data
+            if analysis['summary']['years_covered']:
+                year_overview = Table(title="Quick Year Overview", box=box.SIMPLE, header_style="bold cyan")
+                year_overview.add_column("Year", style="yellow", justify="center")
+                year_overview.add_column("Subjects", style="white", justify="center")
+                year_overview.add_column("Documents", style="green", justify="center")
+                
+                for year in sorted(analysis['summary']['years_covered']):
+                    if year in analysis['by_year']:
+                        year_data = analysis['by_year'][year]
+                        total_docs = sum(year_data['document_types'].values())
+                        year_overview.add_row(str(year), str(year_data['total_count']), str(total_docs))
+                CONSOLE.print(year_overview)
             # Optionally list subsets if small
             def maybe_list(label: str, items: List[str]):
                 if not CONSOLE:
@@ -781,43 +963,146 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
         elif choice == "2":
             await menu_markdown_utils(base_output_dir=base_output_dir)
         elif choice == "3":
-            # Full statistics view
+            # Full statistics view with year-based analysis
             if CONSOLE:
-                stats_panel = Table(title="Full Statistics", box=box.MINIMAL_DOUBLE_HEAD, header_style="bold magenta")
+                # Basic overview
+                stats_panel = Table(title="Project Overview", box=box.MINIMAL_DOUBLE_HEAD, header_style="bold magenta")
                 stats_panel.add_column("Category", style="cyan")
                 stats_panel.add_column("Value", style="bold yellow")
-                # Gather deeper stats
+                
+                # Gather basic stats
                 unparsed = list_unparsed_pdfs(pdf_dir)
                 subjects = list_subjects(base_output_dir)
                 md_status = compute_markdown_status(base_output_dir)
                 parsed_files = list_parsed_files(base_output_dir)
+                
                 stats_panel.add_row("Total PDFs (root)", str(len(list(Path(pdf_dir).glob('*.pdf')))))
                 stats_panel.add_row("Unparsed PDFs", str(len(unparsed)))
                 stats_panel.add_row("Subjects (parsed dir)", str(len(subjects)))
                 stats_panel.add_row("Total Parsed Document Folders", str(len(parsed_files)))
                 stats_panel.add_row("Subjects Merged", str(len(md_status['merged'])))
                 stats_panel.add_row("Subjects Cleaned", str(len(md_status['cleaned'])))
-                stats_panel.add_row("Subjects Unmerged", str(len(md_status['unmerged'])))
-                stats_panel.add_row("Subjects Uncleaned", str(len(md_status['uncleaned'])))
                 CONSOLE.print(stats_panel)
-                # Detailed lists (folded if large)
-                def list_section(title: str, items: List[str]):
-                    if not items or not CONSOLE:
-                        return
-                    if len(items) > 30:
-                        head = items[:15]; tail = items[-5:]
-                        body = "\n".join(head + ["...", f"(total {len(items)} items)"] + tail)
-                    else:
-                        body = "\n".join(items)
-                    CONSOLE.print(Panel(body, title=title, border_style="blue"))
-                list_section("Parsed Document Folders", [p.name for p in parsed_files])
-                list_section("Merged Subjects", md_status['merged'])
-                list_section("Cleaned Subjects", md_status['cleaned'])
-                list_section("Unmerged Subjects", md_status['unmerged'])
-                list_section("Uncleaned Subjects", md_status['uncleaned'])
+                
+                # Year-based detailed analysis
+                analysis = analyze_subjects_by_year(base_output_dir)
+                
+                # Year summary table with serial stats
+                if analysis["by_year"]:
+                    year_table = Table(title="Subjects by Year", box=box.MINIMAL_DOUBLE_HEAD, header_style="bold cyan")
+                    year_table.add_column("Year", style="bold yellow", justify="center")
+                    year_table.add_column("Subjects", style="white", justify="center")
+                    year_table.add_column("A", style="green", justify="center")
+                    year_table.add_column("E", style="blue", justify="center") 
+                    year_table.add_column("BIC", style="red", justify="center")
+                    year_table.add_column("O", style="magenta", justify="center")
+                    year_table.add_column("Parsed", style="bright_green", justify="center")
+                    year_table.add_column("Merged", style="bright_blue", justify="center")
+                    year_table.add_column("Cleaned", style="bright_magenta", justify="center")
+                    year_table.add_column("Min", style="cyan", justify="center")
+                    year_table.add_column("Max", style="cyan", justify="center")
+                    year_table.add_column("Missing", style="cyan", justify="center")
+                    
+                    for year in sorted(analysis["by_year"].keys()):
+                        year_data = analysis["by_year"][year]
+                        year_table.add_row(
+                            str(year),
+                            str(year_data["total_count"]),
+                            str(year_data["document_types"]["A"]),
+                            str(year_data["document_types"]["E"]),
+                            str(year_data["document_types"]["BIC"]),
+                            str(year_data["document_types"]["O"]),
+                            str(year_data["processing_status"]["parsed"]),
+                            str(year_data["processing_status"]["merged"]),
+                            str(year_data["processing_status"]["cleaned"]),
+                            f"{year_data['min_serial']:02d}" if year_data["min_serial"] is not None else "—",
+                            f"{year_data['max_serial']:02d}" if year_data["max_serial"] is not None else "—",
+                            str(len(year_data.get("missing_serials", [])))
+                        )
+                    CONSOLE.print(year_table)
+                    # Optionally list missing serials per year
+                    has_missing = any(analysis["by_year"][y].get("missing_serials") for y in analysis["by_year"])            
+                    if has_missing and Confirm.ask("List missing serials per year?", default=False):
+                        for year in sorted(analysis["by_year"].keys()):
+                            ydata = analysis["by_year"][year]
+                            missing = ydata.get("missing_serials", [])
+                            if missing:
+                                CONSOLE.print(Panel(
+                                    ", ".join(missing),
+                                    title=f"Missing Serials - {year}",
+                                    border_style="red"
+                                ))
+                
+                # Detailed subject breakdown by year (show only if requested)
+                if Confirm.ask("Show detailed subject breakdown by year?", default=False):
+                    for year in sorted(analysis["by_year"].keys()):
+                        year_data = analysis["by_year"][year]
+                        subjects_in_year = year_data["subjects"]
+                        
+                        if subjects_in_year:
+                            detail_table = Table(
+                                title=f"Year {year} - {len(subjects_in_year)} Subjects",
+                                box=box.SIMPLE,
+                                header_style="bold cyan"
+                            )
+                            detail_table.add_column("Subject", style="bold yellow")
+                            detail_table.add_column("Serial", style="white")
+                            detail_table.add_column("Docs", style="white")
+                            detail_table.add_column("Types", style="cyan")
+                            detail_table.add_column("Status", style="green")
+                            
+                            for subj in subjects_in_year:
+                                # Format document types
+                                doc_types = []
+                                for dtype, count in subj["document_types"].items():
+                                    if count > 0:
+                                        doc_types.append(f"{dtype}({count})" if count > 1 else dtype)
+                                types_str = ", ".join(doc_types) if doc_types else "None"
+                                
+                                # Format processing status
+                                status_parts = []
+                                if subj["processing_status"]["parsed"]:
+                                    status_parts.append("P")
+                                if subj["processing_status"]["merged"]:
+                                    status_parts.append("M")
+                                if subj["processing_status"]["cleaned"]:
+                                    status_parts.append("C")
+                                status_str = "•".join(status_parts) if status_parts else "—"
+                                
+                                detail_table.add_row(
+                                    subj["id"],
+                                    subj["serial"],
+                                    str(subj["total_documents"]),
+                                    types_str,
+                                    status_str
+                                )
+                            
+                            CONSOLE.print(detail_table)
+                
+                # Document type summary
+                doc_summary = Table(title="Document Type Summary", box=box.SIMPLE, header_style="bold magenta")
+                doc_summary.add_column("Type", style="cyan")
+                doc_summary.add_column("Description", style="white")
+                doc_summary.add_column("Count", style="bold yellow")
+                
+                doc_descriptions = {
+                    "A": "Release Notes",
+                    "E": "Admission Notes", 
+                    "BIC": "Death Notices",
+                    "O": "Death Certificates"
+                }
+                
+                for doc_type, count in analysis["summary"]["document_types"].items():
+                    doc_summary.add_row(
+                        doc_type,
+                        doc_descriptions.get(doc_type, "Unknown"),
+                        str(count)
+                    )
+                CONSOLE.print(doc_summary)
+                
             else:
-                print("Full Statistics:")
                 # Basic textual fallback
+                print("Full Statistics:")
                 print(f"Unparsed PDFs: {len(list_unparsed_pdfs(pdf_dir))}")
                 print(f"Subjects: {len(list_subjects(base_output_dir))}")
                 md_status = compute_markdown_status(base_output_dir)
@@ -825,6 +1110,20 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
                 print(f"Cleaned Subjects: {len(md_status['cleaned'])}")
                 print(f"Unmerged Subjects: {len(md_status['unmerged'])}")
                 print(f"Uncleaned Subjects: {len(md_status['uncleaned'])}")
+                
+                # Year-based analysis (text format)
+                analysis = analyze_subjects_by_year(base_output_dir)
+                print(f"\nYears covered: {', '.join(map(str, analysis['summary']['years_covered']))}")
+                for year in sorted(analysis["by_year"].keys()):
+                    year_data = analysis["by_year"][year]
+                    print(f"Year {year}: {year_data['total_count']} subjects")
+                    for doc_type, count in year_data["document_types"].items():
+                        if count > 0:
+                            print(f"  {doc_type}: {count}")
+                    print(f"  Status: P:{year_data['processing_status']['parsed']} M:{year_data['processing_status']['merged']} C:{year_data['processing_status']['cleaned']}")
+                    print(f"  Serial range: min={year_data['min_serial']} max={year_data['max_serial']}")
+                    if year_data.get('missing_serials'):
+                        print(f"  Missing: {', '.join(year_data['missing_serials'])}")
 
 
 def save_markdown_documents(markdown_documents, output_dir):
