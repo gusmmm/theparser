@@ -7,6 +7,13 @@
 - always annotate the code
 - always create rich output to the terminal
 
+# annotations
+- use yaml for annotations
+- always annotate functions and classes
+- always annotate the return type of functions and methods
+- always annotate variables
+- use the project structure to find the right place to put the code
+
 # llamaindex and llamaparse
 - use llamaparse to parse documents
 
@@ -14,3 +21,9 @@
 - use pandas to generate reports
 - use matplotlib to plot reports
 - all the reports are generated in the reports/ folder
+
+# google-genai sdk api
+- always use the latest documentation at https://ai.google.dev/gemini-api/docs before implementing anything related to google-genai clients
+- use thinking budget if necessary, see at https://ai.google.dev/gemini-api/docs/thinking how to use it
+- use structured output using pydantic models, see at https://ai.google.dev/gemini-api/docs/structured-output how to use it.
+- always use the `gemini-2.5-flash` model for all tasks, unless specified otherwise
