@@ -1,0 +1,5 @@
+numero_internamento,field,csv_field,matches,db_value,csv_value
+2401,ano_internamento,year,False,2023,2024
+2401,data_entrada,data_ent,False,2023-12-31,2024-01-04
+2401,data_alta,data_alta,False,2024-01-26,2024-01-22
+2401,destino_alta,destino,False,consulta externa - cex cir.plastica,enfcp

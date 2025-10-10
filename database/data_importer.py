@@ -16,7 +16,7 @@ Date: 2025-10-10
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
 
@@ -35,6 +35,63 @@ ic.configureOutput(prefix='[IMPORT DEBUG] ')
 
 # Rich console
 console = Console()
+
+
+def convert_to_date(date_str: Optional[str]) -> Optional[datetime]:
+    """
+    Convert date string to datetime object for MongoDB.
+    
+    Args:
+        date_str: Date string in YYYY-MM-DD format
+        
+    Returns:
+        datetime object or None
+    """
+    if not date_str or date_str.strip() == '':
+        return None
+    
+    try:
+        # Parse YYYY-MM-DD format
+        return datetime.fromisoformat(date_str.strip())
+    except (ValueError, AttributeError):
+        return None
+
+
+def convert_to_int(value: Any) -> Optional[int]:
+    """
+    Convert value to integer for MongoDB.
+    
+    Args:
+        value: Value to convert
+        
+    Returns:
+        int or None
+    """
+    if value is None or value == '':
+        return None
+    
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def convert_dates_in_dict(data: Dict, date_fields: List[str]) -> Dict:
+    """
+    Convert specified date fields in a dictionary to datetime objects.
+    
+    Args:
+        data: Dictionary containing date fields
+        date_fields: List of field names to convert
+        
+    Returns:
+        Dictionary with converted dates
+    """
+    result = data.copy()
+    for field in date_fields:
+        if field in result:
+            result[field] = convert_to_date(result[field])
+    return result
 
 
 class MedicalRecordImporter:
@@ -203,20 +260,34 @@ class MedicalRecordImporter:
         Returns:
             Transformed document for MongoDB
         """
+        # Convert dates in internamento
+        internamento = json_data["internamento"].copy()
+        internamento["data_entrada"] = convert_to_date(internamento.get("data_entrada"))
+        internamento["data_alta"] = convert_to_date(internamento.get("data_alta"))
+        
+        # Convert dates in doente
+        doente = json_data["doente"].copy()
+        doente["data_nascimento"] = convert_to_date(doente.get("data_nascimento"))
+        doente["patologias"] = json_data.get("patologias", [])
+        doente["medicacoes"] = json_data.get("medicacoes", [])
+        
+        # Convert dates in queimaduras
+        queimaduras = []
+        for queimadura in json_data.get("queimaduras", []):
+            q = queimadura.copy()
+            q["data"] = convert_to_date(q.get("data"))
+            queimaduras.append(q)
+        
         # Create document with internamento as main unit
         document = {
-            # Main admission data
-            "internamento": json_data["internamento"],
+            # Main admission data with converted dates
+            "internamento": internamento,
             
-            # Patient data with embedded pathologies and medications
-            "doente": {
-                **json_data["doente"],
-                "patologias": json_data.get("patologias", []),
-                "medicacoes": json_data.get("medicacoes", [])
-            },
+            # Patient data with embedded pathologies and medications and converted dates
+            "doente": doente,
             
             # Embedded arrays for admission-related data
-            "queimaduras": json_data.get("queimaduras", []),
+            "queimaduras": queimaduras,
             "procedimentos": json_data.get("procedimentos", []),
             "antibioticos": json_data.get("antibioticos", []),
             "infecoes": json_data.get("infecoes", []),
@@ -225,10 +296,10 @@ class MedicalRecordImporter:
             # Metadata
             "source_file": json_data.get("source_file"),
             "extraction_date": json_data.get("extraction_date"),
-            "import_date": datetime.now().isoformat(),
+            "import_date": datetime.now(),  # Store as datetime, not string
             
             # Computed fields for easier querying
-            "ano_internamento": int(json_data["internamento"]["data_entrada"][:4]) 
+            "ano_internamento": convert_to_int(json_data["internamento"]["data_entrada"][:4]) 
                 if json_data["internamento"].get("data_entrada") else None,
             "tem_queimaduras": len(json_data.get("queimaduras", [])) > 0,
             "tem_procedimentos": len(json_data.get("procedimentos", [])) > 0,

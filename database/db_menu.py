@@ -340,14 +340,17 @@ async def menu_database(base_output_dir: str = "./pdf/output"):
         menu_table.add_row("2", "Import single subject by ID")
         menu_table.add_row("3", "View database statistics")
         menu_table.add_row("4", "Query database")
-        menu_table.add_row("5", "Refresh status")
+        menu_table.add_row("5", "Validate data vs CSV")
+        menu_table.add_row("6", "Update database from CSV (dry run)")
+        menu_table.add_row("7", "Update database from CSV (interactive)")
+        menu_table.add_row("8", "Refresh status")
         menu_table.add_row("0", "Return to main menu")
         
         console.print(menu_table)
         
         choice = Prompt.ask(
             "\n[bold cyan]Select an option[/bold cyan]",
-            choices=["0", "1", "2", "3", "4", "5"],
+            choices=["0", "1", "2", "3", "4", "5", "6", "7", "8"],
             default="0"
         )
         
@@ -393,6 +396,31 @@ async def menu_database(base_output_dir: str = "./pdf/output"):
             input()
             
         elif choice == "5":
+            # Validate data vs CSV
+            console.print("\n[cyan]Running data validation...[/cyan]")
+            import subprocess
+            subprocess.run(["uv", "run", "python", "database/data_validator.py"])
+            console.print("\n[dim]Press Enter to continue...[/dim]")
+            input()
+            
+        elif choice == "6":
+            # Update database from CSV (dry run)
+            console.print("\n[cyan]Running update in DRY RUN mode...[/cyan]")
+            import subprocess
+            subprocess.run(["uv", "run", "python", "database/data_updater.py"])
+            console.print("\n[dim]Press Enter to continue...[/dim]")
+            input()
+            
+        elif choice == "7":
+            # Update database from CSV (LIVE) - Interactive mode
+            console.print("\n[bold cyan]⚡ Interactive Update Mode[/bold cyan]")
+            console.print("[dim]Review and select which fields to update[/dim]\n")
+            import subprocess
+            subprocess.run(["uv", "run", "python", "database/interactive_updater.py"])
+            console.print("\n[dim]Press Enter to continue...[/dim]")
+            input()
+            
+        elif choice == "8":
             # Refresh - just loop back
             continue
 
