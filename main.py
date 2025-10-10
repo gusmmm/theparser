@@ -974,17 +974,17 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
             top = Table(show_header=False, box=box.SIMPLE_HEAVY, padding=(0,1))
             top.add_column("Opt", style="bold cyan", width=4, justify="right")
             top.add_column("Category", style="white")
-            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","Full Statistics"),("4","Exit")]:
+            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","CSV Quality Control"),("4","Full Statistics"),("5","Exit")]:
                 top.add_row(k,label)
             CONSOLE.print(top)
-            choice = Prompt.ask("Select", choices=["1","2","3","4"], default="4")
+            choice = Prompt.ask("Select", choices=["1","2","3","4","5"], default="5")
         else:
             print("Unparsed PDFs:")
             for p in list_unparsed_pdfs(pdf_dir):
                 print(f"  - {p.name}")
-            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) Full Statistics\n4) Exit")
+            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) CSV Quality Control\n4) Full Statistics\n5) Exit")
             choice = input("Choice: ").strip()
-        if choice == "4":
+        if choice == "5":
             if CONSOLE:
                 CONSOLE.print("[green]Goodbye![/green]")
             break
@@ -993,6 +993,14 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
         elif choice == "2":
             await menu_markdown_utils(base_output_dir=base_output_dir)
         elif choice == "3":
+            # Launch CSV Quality Control menu
+            import subprocess
+            if CONSOLE:
+                CONSOLE.print("[cyan]Launching CSV Quality Control menu...[/cyan]")
+            subprocess.run(["uv", "run", "python", "csv/csv_menu.py"])
+            if CONSOLE:
+                CONSOLE.print("[green]Returned from CSV menu[/green]")
+        elif choice == "4":
             # Full statistics view with year-based analysis
             if CONSOLE:
                 # Basic overview
@@ -1877,9 +1885,9 @@ Examples:
     
     args = parser.parse_args()
     
-    # Default to full workflow if no mode specified
-    if not any([args.full, args.parse_only, args.merge_only, args.clean_only]):
-        args.full = True
+    # Default to menu if no mode specified and no menu flag
+    if not any([args.full, args.parse_only, args.merge_only, args.clean_only, args.menu]):
+        args.menu = True
     
     return args
 
