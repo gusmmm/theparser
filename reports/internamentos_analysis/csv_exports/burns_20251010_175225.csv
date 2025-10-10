@@ -1,0 +1,7 @@
+numero_internamento,local_anatomico,grau_maximo,percentagem,notas
+2401,FACE,SEGUNDO,4.5,
+2401,UPPER_LIMB,SEGUNDO,8.5,circular
+2401,HAND,SEGUNDO,,
+2401,CHEST,SEGUNDO,1.0,hemitórax direito
+2402,UPPER_LIMB,SEGUNDO,,"ambos os antebraços até ao terço proximal, 2º grau superficial e profundo"
+2402,HAND,TERCEIRO,,"ambas as mãos circulares, 2º grau profundo e zonas pequenas de 3º grau"

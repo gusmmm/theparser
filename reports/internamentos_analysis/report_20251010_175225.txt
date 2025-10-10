@@ -1,0 +1,117 @@
+================================================================================
+COMPREHENSIVE ANALYSIS OF BURN UNIT HOSPITALIZATIONS
+UQ Database - Internamentos Collection
+Generated: 2025-10-10 17:52:25
+================================================================================
+
+OVERALL STATISTICS
+--------------------------------------------------------------------------------
+Total Records: 2
+Date Range: 2024-01-04 00:00:00 to 2024-01-24 00:00:00
+Time Span: 20 days
+
+DEMOGRAPHICS
+--------------------------------------------------------------------------------
+Age at Admission:
+  Mean: 46.5 years
+  Median: 46.5 years
+  Std Dev: 16.2 years
+  Range: 35.0 - 58.0 years
+
+Sex Distribution:
+  F: 1 (50.0%)
+  M: 1 (50.0%)
+
+HOSPITALIZATION STATISTICS
+--------------------------------------------------------------------------------
+Length of Stay:
+  Mean: 39.5 days
+  Median: 39.5 days
+  Std Dev: 30.4 days
+  Range: 18 - 61 days
+
+Time from Burn to Admission:
+  Mean: 2.0 days
+  Median: 2.0 days
+
+BURN SEVERITY
+--------------------------------------------------------------------------------
+ASCQ (Total Burn Surface Area):
+  Mean: 11.5%
+  Median: 11.5%
+  Std Dev: 4.9%
+  Range: 8.0% - 15.0%
+
+Inhalation Injury:
+  NAO: 1 (50.0%)
+
+Mean Burns per Patient: 3.0
+
+CLINICAL INTERVENTIONS
+--------------------------------------------------------------------------------
+Procedures:
+  Mean per patient: 5.0
+  Median per patient: 5.0
+  Total procedures: 10
+
+Pre-existing Conditions:
+  Mean per patient: 2.0
+  Total pathologies: 4
+
+Medications:
+  Mean per patient: 3.0
+  Total medications: 6
+
+Infections: 0
+Antibiotics: 1
+
+TEMPORAL PATTERNS
+--------------------------------------------------------------------------------
+Admissions by Year:
+  2024: 2
+
+TOP PROCEDURES
+--------------------------------------------------------------------------------
+ 1. Plastia com EPP não expandido: 2
+ 2. Desbridamento queimadura MSD e quadrantes externos mama direita: 1
+ 3. Desbridamento de queimadura no antebraço, braço direito e mama direita. Plastia dos defeitos cutâneos com EPP colhido na face anterior da coxa direita e expandido 1:3.: 1
+ 4. Desbridamento cirúgico: 1
+ 5. Desbridamento de queimaduras do dorso das mãos bilateralmente: 1
+ 6. Desbridamento de áreas de hipergranulação: 1
+ 7. Plastia dos defeitos cutâneos das mãos com EPP não expandido: 1
+ 8. Plastia do defeito cutâneo do antebraço direito com EPP expandido: 1
+ 9. Desbridamento de áreas cruentas de ambas as mãos: 1
+
+TOP PRE-EXISTING PATHOLOGIES
+--------------------------------------------------------------------------------
+Patients with pathologies: 2
+Patients without: 0
+
+ 1. HTA: 1
+ 2. DM tipo 2 não controlada: 1
+ 3. retinopatia: 1
+ 4. Fumador: 1
+
+TOP REGULAR MEDICATIONS
+--------------------------------------------------------------------------------
+ 1. Fenofibrato: 1
+ 2. Metformina: 1
+ 3. Gliclazida: 1
+ 4. Metformina + Dapagliflozina: 1
+ 5. Ramipril: 1
+ 6. Atorvastatina: 1
+
+ANTIBIOTICS
+--------------------------------------------------------------------------------
+Usage Rate: 50.0%
+Patients using antibiotics: 1
+
+Top Antibiotics:
+ 1. Sulfadiazina de prata: 1
+
+DATA QUALITY ISSUES
+--------------------------------------------------------------------------------
+No quality issues detected.
+================================================================================
+END OF REPORT
+================================================================================

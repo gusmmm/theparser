@@ -291,11 +291,12 @@ def import_all_subjects(results: Dict, base_output_dir: str = "./pdf/output") ->
                 try:
                     result = importer.import_json_file(str(json_file), skip_duplicates=True)
                     
-                    if result['status'] in ['success', 'duplicate']:
+                    if result['success']:
                         success_count += 1
                     else:
                         failed_count += 1
-                        console.print(f"[red]Failed: {subject_id}[/red]")
+                        error_msg = result.get('error', 'Unknown error')
+                        console.print(f"[red]Error {subject_id}: {error_msg}[/red]")
                         
                 except Exception as e:
                     failed_count += 1
