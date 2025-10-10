@@ -12,6 +12,7 @@ dependencies = [
     "llama-parse>=0.6.69",
     "matplotlib>=3.10.6",
     "pandas>=2.3.2",
+    "pymongo>=4.15.3",
     "python-dotenv>=1.1.1",
     "rich>=13.7.1",
 ]
