@@ -974,17 +974,17 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
             top = Table(show_header=False, box=box.SIMPLE_HEAVY, padding=(0,1))
             top.add_column("Opt", style="bold cyan", width=4, justify="right")
             top.add_column("Category", style="white")
-            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","CSV Quality Control"),("4","Database Management"),("5","Full Statistics"),("6","Exit")]:
+            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","CSV Quality Control"),("4","Database Management"),("5","Agent Management"),("6","Full Statistics"),("7","Exit")]:
                 top.add_row(k,label)
             CONSOLE.print(top)
-            choice = Prompt.ask("Select", choices=["1","2","3","4","5","6"], default="6")
+            choice = Prompt.ask("Select", choices=["1","2","3","4","5","6","7"], default="7")
         else:
             print("Unparsed PDFs:")
             for p in list_unparsed_pdfs(pdf_dir):
                 print(f"  - {p.name}")
-            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) CSV Quality Control\n4) Database Management\n5) Full Statistics\n6) Exit")
+            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) CSV Quality Control\n4) Database Management\n5) Agent Management\n6) Full Statistics\n7) Exit")
             choice = input("Choice: ").strip()
-        if choice == "6":
+        if choice == "7":
             if CONSOLE:
                 CONSOLE.print("[green]Goodbye![/green]")
             break
@@ -1009,6 +1009,14 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
             if CONSOLE:
                 CONSOLE.print("[green]Returned from Database menu[/green]")
         elif choice == "5":
+            # Launch Agent Management menu
+            from agent.agent_menu import menu_agent
+            if CONSOLE:
+                CONSOLE.print("[cyan]Launching Agent Management menu...[/cyan]")
+            await menu_agent(base_output_dir=base_output_dir)
+            if CONSOLE:
+                CONSOLE.print("[green]Returned from Agent menu[/green]")
+        elif choice == "6":
             # Full statistics view with year-based analysis
             if CONSOLE:
                 # Basic overview

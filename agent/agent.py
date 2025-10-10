@@ -69,16 +69,21 @@ def read_markdown_file(file_path: str) -> str:
         raise
 
 
-def create_extraction_prompt(markdown_content: str) -> str:
+def create_extraction_prompt(markdown_content: str, file_path: str) -> str:
     """
     Create a detailed prompt for Gemini to extract structured data from medical records.
     
     Args:
         markdown_content: The markdown file content
+        file_path: Path to the source file (used to extract numero_internamento)
         
     Returns:
         Formatted prompt string
     """
+    # Extract subject ID from filename (e.g., "2401" from "2401_merged_medical_records.cleaned.md")
+    filename = Path(file_path).stem
+    subject_id = filename.split('_')[0]
+    
     prompt = f"""You are a medical data extraction AI assistant specialized in Portuguese medical records from a burn unit (Unidade de Queimados).
 
 Your task is to extract ALL relevant information from the following medical record and structure it according to the provided Pydantic schema.
@@ -132,6 +137,7 @@ Your task is to extract ALL relevant information from the following medical reco
 
 ### 4. Hospitalization (Internamento):
 - Extract admission date (data entrada), discharge date (data alta/saída)
+- **CRITICAL**: The hospitalization number (numero_internamento) is: {subject_id}
 - Burn date (data queimadura) if explicitly mentioned
 - Total burn surface area percentage (SCQ/ASCQ) - this is the total percentage
 - Inhalation injury status (lesão inalatória): SIM/NAO/SUSPEITA
@@ -232,7 +238,7 @@ def extract_data_from_markdown(file_path: str) -> MedicalRecordExtraction:
     
     # Create extraction prompt
     console.print("\n[bold yellow]Creating extraction prompt...[/bold yellow]")
-    prompt = create_extraction_prompt(markdown_content)
+    prompt = create_extraction_prompt(markdown_content, file_path)
     ic("Prompt ready for Gemini")
     
     # Initialize Gemini client

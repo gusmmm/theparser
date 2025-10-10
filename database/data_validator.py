@@ -9,7 +9,7 @@ Date: 2025-10-10
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 import csv
 
@@ -59,16 +59,24 @@ def load_csv_data(csv_path: str = "./csv/BD_doentes_clean.csv") -> Dict[int, Dic
 
 def normalize_date(date_str: Optional[str]) -> Optional[str]:
     """
-    Normalize date string for comparison.
-    Handles various formats and returns YYYY-MM-DD or None.
+    Normalize date to YYYY-MM-DD format.
+    Handles both string dates and datetime objects from database.
     
     Args:
-        date_str: Date string in various formats
+        date_str: Date string in various formats or datetime object
         
     Returns:
         Normalized date string or None
     """
-    if not date_str or date_str.strip() == '':
+    if not date_str:
+        return None
+    
+    # Handle datetime objects from database (stored as ISODate)
+    if isinstance(date_str, datetime):
+        return date_str.strftime('%Y-%m-%d')
+    
+    # Handle string dates
+    if not isinstance(date_str, str) or date_str.strip() == '':
         return None
     
     date_str = date_str.strip()
@@ -103,7 +111,7 @@ def normalize_string(s: Optional[str]) -> str:
     return str(s).strip().lower()
 
 
-def compare_values(db_value: any, csv_value: any, field_type: str = "string") -> Tuple[bool, str, str]:
+def compare_values(db_value: Any, csv_value: Any, field_type: str = "string") -> Tuple[bool, str, str]:
     """
     Compare database and CSV values.
     
@@ -248,6 +256,11 @@ def validate_all_internamentos(
     Returns:
         List of comparison results
     """
+    # Connect to database
+    if not db_manager.connect():
+        console.print("[red]Failed to connect to database. Exiting.[/red]")
+        return []
+    
     # Load CSV data
     console.print("\n[bold cyan]Loading CSV data...[/bold cyan]")
     csv_data = load_csv_data(csv_path)
