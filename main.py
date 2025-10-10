@@ -974,17 +974,17 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
             top = Table(show_header=False, box=box.SIMPLE_HEAVY, padding=(0,1))
             top.add_column("Opt", style="bold cyan", width=4, justify="right")
             top.add_column("Category", style="white")
-            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","CSV Quality Control"),("4","Full Statistics"),("5","Exit")]:
+            for k,label in [("1","PDF Parsing Utilities"),("2","Merging & Cleaning Markdown"),("3","CSV Quality Control"),("4","Database Management"),("5","Full Statistics"),("6","Exit")]:
                 top.add_row(k,label)
             CONSOLE.print(top)
-            choice = Prompt.ask("Select", choices=["1","2","3","4","5"], default="5")
+            choice = Prompt.ask("Select", choices=["1","2","3","4","5","6"], default="6")
         else:
             print("Unparsed PDFs:")
             for p in list_unparsed_pdfs(pdf_dir):
                 print(f"  - {p.name}")
-            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) CSV Quality Control\n4) Full Statistics\n5) Exit")
+            print("1) PDF Parsing Utilities\n2) Merging & Cleaning Markdown\n3) CSV Quality Control\n4) Database Management\n5) Full Statistics\n6) Exit")
             choice = input("Choice: ").strip()
-        if choice == "5":
+        if choice == "6":
             if CONSOLE:
                 CONSOLE.print("[green]Goodbye![/green]")
             break
@@ -1001,6 +1001,14 @@ async def menu_root(pdf_dir: str = "./pdf", base_output_dir: str = "./pdf/output
             if CONSOLE:
                 CONSOLE.print("[green]Returned from CSV menu[/green]")
         elif choice == "4":
+            # Launch Database Management menu
+            from database.db_menu import menu_database
+            if CONSOLE:
+                CONSOLE.print("[cyan]Launching Database Management menu...[/cyan]")
+            await menu_database(base_output_dir=base_output_dir)
+            if CONSOLE:
+                CONSOLE.print("[green]Returned from Database menu[/green]")
+        elif choice == "5":
             # Full statistics view with year-based analysis
             if CONSOLE:
                 # Basic overview
