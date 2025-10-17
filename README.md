@@ -1,36 +1,93 @@
-# PDF Parser with LlamaParse
+# Medical Records Parser - Burn Unit Data System
 
-A sophisticated batch processing system for parsing PDF documents using LlamaParse and automatically generating organized markdown outputs with intelligent workflow management.
+A comprehensive Python-based system for parsing, extracting, and analyzing medical records from a burn unit using AI-powered extraction and MongoDB storage.
+
+## 🏥 Overview
+
+This system processes PDF medical records through multiple stages:
+1. **PDF Parsing** - Convert PDFs to structured markdown using LlamaParse
+2. **Markdown Processing** - Merge and clean extracted text
+3. **AI Extraction** - Use Google Gemini to extract structured data
+4. **Database Storage** - Store in MongoDB with comprehensive schema
+5. **Analysis & Reporting** - Generate statistical reports and visualizations
 
 ## 🌟 Features
 
-- **Batch Processing**: Process multiple PDFs simultaneously for maximum efficiency
-- **Intelligent Organization**: Automatically organizes files by subject (first 4 digits of filename)
-- **Smart Checkpoints**: Skip unnecessary processing when outputs already exist
-- **Document Categorization**: Automatically categorizes documents by type (Admission, Release, Death notices, etc.)
-- **Markdown Merging**: Creates comprehensive merged medical records from individual documents
-- **CLI Control**: Flexible command-line interface with multiple workflow options
-- **Comprehensive Output**: Extracts text, markdown, images, layout, and structured data
+## 🌟 Features
+
+### Core Functionality
+- **Batch PDF Processing**: Process multiple PDFs simultaneously with LlamaParse
+- **Intelligent Organization**: Auto-organize files by subject (4-digit prefix)
+- **Smart Checkpoints**: Skip unnecessary processing when outputs exist
+- **Document Categorization**: Auto-categorize by type (Admission, Release, Death notices)
+- **Markdown Management**: Merge and clean markdown files
+- **AI-Powered Extraction**: Google Gemini API with Pydantic structured output
+- **Database Integration**: MongoDB with comprehensive indexing and validation
+- **Quality Control**: Data validation and CSV cross-referencing
+- **Statistical Analysis**: Comprehensive reporting with pandas, numpy, seaborn
+
+### Medical Data Models
+- **Patient Information**: Demographics, medical history, medications
+- **Advanced Burn Classification**: 
+  - **11 Anatomical Regions**: HEAD, FACE, CERVICAL, CHEST, ABDOMEN, BACK, PERINEUM, UPPER_LIMB, LOWER_LIMB, HAND, FOOT
+  - **5 Burn Depths**: 1st degree, 2nd superficial, 2nd deep, 3rd, 4th degree
+  - **15+ Mechanisms**: Thermal (flame, scald, contact, steam), electrical, chemical, radiation
+  - **40+ Specific Agents**: Water, oil, fire, gasoline, iron, stove, etc.
+  - **Laterality & Circumferential**: Track sided burns and escharotomy risks
+- **Clinical Data**: Procedures, infections, antibiotics with dates and indications
+- **Pre-existing Conditions**: Pathologies and regular medications
+
+### Advanced Features
+- **Agent Menu**: AI-assisted workflow automation for extraction and import
+- **Data Validation**: Cross-reference MongoDB data with CSV sources
+- **Interactive Updates**: Review and select fields to update in database
+- **Batch Import**: Import multiple subjects with progress tracking
+- **Comprehensive Reports**: Statistical analysis, visualizations (12+ charts), quality metrics
 
 ## 📁 Project Structure
 
 ```
 theparser/
-├── main.py                 # Main application with CLI interface
+├── main.py                 # Main menu system
 ├── README.md              # This documentation
-├── pyproject.toml         # Project dependencies
-├── .env                   # Environment variables (API keys)
-└── pdf/                   # Input and output directory
-    ├── [subject folders]/ # Organized PDF files by subject
-    └── output/           # Processing results
-        └── [subject]/    # Subject-specific outputs
-            ├── [document]/        # Individual document processing
-            │   ├── markdown/      # Page-by-page markdown
-            │   ├── text/          # Plain text extraction
-            │   ├── images/        # Extracted images
-            │   ├── layout/        # Layout information (JSON)
-            │   └── structured_data/ # Structured data (JSON)
-            └── [subject]_merged_medical_records.md  # Merged document
+├── pyproject.toml         # Project dependencies (UV)
+├── .env                   # Environment variables (API keys) - GITIGNORED
+├── .gitignore             # Comprehensive ignore rules
+├── agent/                 # AI extraction agent
+│   ├── agent.py          # Main extraction logic with Gemini
+│   ├── agent_menu.py     # Agent workflow management
+│   └── models.py         # Pydantic data models
+├── database/             # MongoDB integration
+│   ├── db_manager.py     # Database connection
+│   ├── data_importer.py  # Import JSON to MongoDB
+│   ├── data_validator.py # Validate against CSV
+│   ├── data_updater.py   # Update from CSV (dry run)
+│   ├── interactive_updater.py # Interactive updates
+│   └── db_menu.py        # Database operations menu
+├── parser/               # PDF parsing
+│   └── pdf_parser.py     # LlamaParse integration
+├── markdown/             # Markdown processing
+│   ├── merger.py         # Merge markdown files
+│   └── cleaner.py        # Clean and format
+├── reports/              # Analysis and reporting
+│   ├── analyze_internamentos.py  # Comprehensive DB analysis
+│   └── internamentos_analysis/   # Generated reports
+├── csv/                  # CSV data - GITIGNORED
+│   └── .gitkeep          # Preserve structure
+├── pdf/                  # PDF files and outputs - GITIGNORED
+│   ├── .gitkeep          # Preserve structure
+│   └── output/           # Processing results by subject
+│       └── [subject]/    # Subject-specific outputs
+│           ├── [document]/       # Individual document processing
+│           │   ├── markdown/     # Page-by-page markdown
+│           │   ├── text/         # Plain text extraction
+│           │   ├── images/       # Extracted images
+│           │   └── structured_data/  # Structured data (JSON)
+│           ├── [subject]_merged_medical_records.md     # Merged
+│           ├── [subject]_merged_medical_records.cleaned.md  # Cleaned
+│           └── [subject]_extracted.json  # AI-extracted structured data
+└── reports/              # Analysis outputs - GITIGNORED
+    └── .gitkeep          # Preserve structure
 ```
 
 ## ⚡ Quick Start
