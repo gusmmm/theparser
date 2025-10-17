@@ -139,20 +139,70 @@ Your task is to extract ALL relevant information from the following medical reco
 - Extract admission date (data entrada), discharge date (data alta/saída)
 - **CRITICAL**: The hospitalization number (numero_internamento) is: {subject_id}
 - Burn date (data queimadura) if explicitly mentioned
-- Total burn surface area percentage (SCQ/ASCQ) - this is the total percentage
+- Total burn surface area percentage (ASCQ total) - use decimal precision (e.g., 8.5, 12.3)
 - Inhalation injury status (lesão inalatória): SIM/NAO/SUSPEITA
 - Origin: text description (e.g., "Hospital de Viana do Castelo", "SU")
 - Destination: text description (e.g., "Consulta Externa", "Domicílio", "Enfermaria")
-- Burn mechanism: text (e.g., "escaldadura", "chama", "contacto")
-- Burn agent: text (e.g., "líquido quente", "fogo direto", "óleo quente")
+
+**Burn Mechanism Classification (use specific enums when possible):**
+- THERMAL_FLAME: Direct fire, flame burns (chama, fogo direto)
+- THERMAL_SCALD: Hot liquids (escaldadura, água quente, óleo quente)
+- THERMAL_CONTACT: Hot surfaces (contacto, ferro, fogão, escape)
+- THERMAL_STEAM: Steam (vapor)
+- ELECTRICAL_HIGH_VOLTAGE/LOW_VOLTAGE: Electrical injuries
+- CHEMICAL_ACID/ALKALI: Chemical burns
+- If unclear, use descriptive text
+
+**Burn Agent Classification (use specific enums when possible):**
+Common agents: AGUA_QUENTE, OLEO_QUENTE, FOGO_DIRETO, ALCOOL, GASOLINA, FERRO_ENGOMAR, FOGAO, VAPOR
+- If agent matches enum, use it; otherwise use descriptive text
+
+**Accident Type Classification:**
+- DOMESTICO: Home accident
+- TRABALHO: Work-related
+- LAZER: Leisure/recreational
+- INCENDIO_ESTRUTURAL/FLORESTAL: Structural/forest fire
+- VIOLENCIA_DOMESTICA: Domestic violence
+- AGRESSAO: Assault
+- AUTOINFLIGIDO: Self-inflicted
+- If unclear, use descriptive text
+
 - Include source_text for dates, origin, destination, and ASCQ calculation
 
 ### 5. Burns (Queimaduras):
+**CRITICAL BURN EXTRACTION RULES:**
+
+**ANATOMICAL SPECIFICITY:**
 - For EACH distinct anatomical location, create a separate entry
-- Include: location enum, maximum degree, percentage (if mentioned), notes
-- **MANDATORY**: Include source_text with the exact phrase describing this burn
-- Degree conversion: "2º grau"→SEGUNDO, "3º grau"→TERCEIRO, "1º grau"→PRIMEIRO, "4º grau"→QUARTO
-- If percentage given for specific location, include it
+- If burn affects HAND specifically → Create separate HAND entry
+- If burn affects arm/forearm → Create separate UPPER_LIMB entry
+- If text says "membro superior direito e mão" → Create TWO entries: UPPER_LIMB and HAND
+- DO NOT combine hand with upper limb or foot with lower limb
+
+**BURN DEPTH SPECIFICITY (CRITICAL):**
+- "2º grau superficial" → SEGUNDO_SUPERFICIAL
+- "2º grau profundo" → SEGUNDO_PROFUNDO  
+- "2º grau" (unspecified) → SEGUNDO_PROFUNDO (default to deep)
+- "3º grau" → TERCEIRO
+- "1º grau" → PRIMEIRO
+- "4º grau" → QUARTO
+- If text mentions BOTH depths in same area (e.g., "2º grau superficial e profundo"), use MAXIMUM depth (SEGUNDO_PROFUNDO)
+
+**ADDITIONAL BURN DETAILS:**
+- Extract percentage for specific location if mentioned (use decimal: 8.5, not 8)
+- Note laterality: 'direita', 'esquerda', 'bilateral' in notas or separate field
+- Note if burn is circumferential/circular (important for escharotomy risk)
+- Include specific sub-location in notas (e.g., "dorso da mão", "face anterior da coxa")
+
+**Examples:**
+- "Queimaduras de 2º grau superficial e profundo em ambos os antebraços" → 
+  * Location: UPPER_LIMB, Depth: SEGUNDO_PROFUNDO, Laterality: bilateral, notas: "antebraços"
+- "Queimaduras de 2º grau profundo e zonas pequenas de 3º grau em ambas as mãos circulares" →
+  * Location: HAND, Depth: TERCEIRO, Circunferencial: true, Laterality: bilateral
+- "Queimadura 2º grau face anterior da coxa direita, 6-8%" →
+  * Location: LOWER_LIMB, Depth: SEGUNDO_PROFUNDO, Percentagem: 7.0, Laterality: direita, notas: "face anterior da coxa, 6-8%"
+
+**MANDATORY**: Include source_text with the exact phrase describing this burn
 
 ### 6. Pre-existing Conditions (Patologias):
 - Look in "Antecedentes Pessoais" (AP) section

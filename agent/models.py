@@ -45,11 +45,24 @@ class LocalAnatomicoEnum(str, Enum):
 
 
 class GrauMaximoEnum(str, Enum):
-    """Maximum burn degree (grau máximo de queimadura)"""
+    """
+    Maximum burn degree (grau máximo de queimadura).
+    
+    Clinical classification:
+    - PRIMEIRO: Superficial, epidermis only (eritema)
+    - SEGUNDO_SUPERFICIAL: Superficial partial thickness (papillary dermis, blisters)
+    - SEGUNDO_PROFUNDO: Deep partial thickness (reticular dermis, may need grafting)
+    - TERCEIRO: Full thickness (entire dermis destroyed, requires grafting)
+    - QUARTO: Extension to muscle, tendon, bone (requires debridement/amputation)
+    """
     PRIMEIRO = 'PRIMEIRO'
-    SEGUNDO = 'SEGUNDO'
+    SEGUNDO_SUPERFICIAL = 'SEGUNDO_SUPERFICIAL'
+    SEGUNDO_PROFUNDO = 'SEGUNDO_PROFUNDO'
     TERCEIRO = 'TERCEIRO'
     QUARTO = 'QUARTO'
+    
+    # Aliases for compatibility and AI extraction
+    SEGUNDO = 'SEGUNDO_PROFUNDO'  # Default to deep when not specified
 
 
 class LesaoInalatoriaEnum(str, Enum):
@@ -64,6 +77,112 @@ class IntubacaoOTEnum(str, Enum):
     SIM = 'SIM'
     NAO = 'NAO'
     JA_VINHA_INTUBADO = 'JA_VINHA_INTUBADO'
+
+
+class BurnMechanismEnum(str, Enum):
+    """
+    Burn mechanism classification - detailed for epidemiological analysis.
+    
+    Categories:
+    - THERMAL: Heat transfer injuries (most common)
+    - ELECTRICAL: Electrical current injuries
+    - CHEMICAL: Chemical agent injuries
+    - RADIATION: Radiation exposure
+    - INHALATION: Respiratory tract burns
+    """
+    # Thermal mechanisms
+    THERMAL_FLAME = 'THERMAL_FLAME'  # Chama, fogo direto
+    THERMAL_SCALD = 'THERMAL_SCALD'  # Escaldadura (líquidos quentes)
+    THERMAL_CONTACT = 'THERMAL_CONTACT'  # Contacto (superfícies quentes)
+    THERMAL_STEAM = 'THERMAL_STEAM'  # Vapor
+    THERMAL_FLASH = 'THERMAL_FLASH'  # Flash (explosão rápida)
+    
+    # Electrical mechanisms
+    ELECTRICAL_HIGH_VOLTAGE = 'ELECTRICAL_HIGH_VOLTAGE'  # Alta tensão (>1000V)
+    ELECTRICAL_LOW_VOLTAGE = 'ELECTRICAL_LOW_VOLTAGE'  # Baixa tensão (<1000V)
+    ELECTRICAL_LIGHTNING = 'ELECTRICAL_LIGHTNING'  # Raio
+    
+    # Chemical mechanisms
+    CHEMICAL_ACID = 'CHEMICAL_ACID'  # Ácido
+    CHEMICAL_ALKALI = 'CHEMICAL_ALKALI'  # Álcali/base
+    CHEMICAL_ORGANIC = 'CHEMICAL_ORGANIC'  # Composto orgânico
+    
+    # Radiation mechanisms
+    RADIATION_SOLAR = 'RADIATION_SOLAR'  # Solar/UV
+    RADIATION_IONIZING = 'RADIATION_IONIZING'  # Radiação ionizante
+    
+    # Inhalation
+    INHALATION = 'INHALATION'  # Lesão inalatória
+    
+    # Other/Unknown
+    OTHER = 'OTHER'
+    UNKNOWN = 'UNKNOWN'
+
+
+class BurnAgentEnum(str, Enum):
+    """
+    Specific burn agent classification for detailed epidemiology.
+    
+    Common agents in Portuguese burn units.
+    """
+    # Hot liquids (escaldadura)
+    AGUA_QUENTE = 'AGUA_QUENTE'  # Hot water
+    OLEO_QUENTE = 'OLEO_QUENTE'  # Hot oil
+    SOPA = 'SOPA'  # Soup
+    LEITE = 'LEITE'  # Milk
+    CAFE_CHA = 'CAFE_CHA'  # Coffee/tea
+    
+    # Flames (chama)
+    FOGO_DIRETO = 'FOGO_DIRETO'  # Direct fire
+    GASOLINA = 'GASOLINA'  # Gasoline
+    ALCOOL = 'ALCOOL'  # Alcohol
+    GAS = 'GAS'  # Gas
+    INCENDIO = 'INCENDIO'  # Building fire
+    EXPLOSAO = 'EXPLOSAO'  # Explosion
+    
+    # Contact (contacto)
+    FERRO_ENGOMAR = 'FERRO_ENGOMAR'  # Iron
+    FOGAO = 'FOGAO'  # Stove
+    FORNO = 'FORNO'  # Oven
+    ESCAPE_MOTO = 'ESCAPE_MOTO'  # Motorcycle exhaust
+    METAL_QUENTE = 'METAL_QUENTE'  # Hot metal
+    PLASTICO_DERRETIDO = 'PLASTICO_DERRETIDO'  # Melted plastic
+    
+    # Steam
+    VAPOR = 'VAPOR'  # Steam
+    
+    # Electrical
+    CORRENTE_ELETRICA = 'CORRENTE_ELETRICA'  # Electrical current
+    RAIO = 'RAIO'  # Lightning
+    
+    # Chemical
+    ACIDO = 'ACIDO'  # Acid
+    SODA_CAUSTICA = 'SODA_CAUSTICA'  # Caustic soda
+    LIXIVIA = 'LIXIVIA'  # Bleach
+    CAL = 'CAL'  # Lime
+    
+    # Other
+    SOL = 'SOL'  # Sun
+    OTHER = 'OTHER'
+    UNKNOWN = 'UNKNOWN'
+
+
+class AccidentTypeEnum(str, Enum):
+    """
+    Accident context/setting classification.
+    """
+    DOMESTICO = 'DOMESTICO'  # Home accident
+    TRABALHO = 'TRABALHO'  # Work-related
+    LAZER = 'LAZER'  # Leisure/recreational
+    TRAFEGO = 'TRAFEGO'  # Traffic accident
+    DESPORTIVO = 'DESPORTIVO'  # Sports-related
+    VIOLENCIA_DOMESTICA = 'VIOLENCIA_DOMESTICA'  # Domestic violence
+    AGRESSAO = 'AGRESSAO'  # Assault
+    AUTOINFLIGIDO = 'AUTOINFLIGIDO'  # Self-inflicted
+    INCENDIO_ESTRUTURAL = 'INCENDIO_ESTRUTURAL'  # Structural fire
+    INCENDIO_FLORESTAL = 'INCENDIO_FLORESTAL'  # Forest fire
+    OTHER = 'OTHER'
+    UNKNOWN = 'UNKNOWN'
 
 
 class ContextoViolentoEnum(str, Enum):
@@ -145,19 +264,28 @@ class Internamento(BaseModel):
     destino_alta: Optional[str] = Field(default=None, description="Discharge destination description (e.g., 'Consulta Externa', 'Domicílio')")
     
     # Burn specifics
-    ASCQ_total: Optional[int] = Field(
+    ASCQ_total: Optional[float] = Field(
         default=None,
-        description="Total ASCQ (Área de Superfície Corporal Queimada) percentage"
+        description="Total ASCQ (Área de Superfície Corporal Queimada) percentage - use decimal for precision (e.g., 8.5)"
     )
     lesao_inalatoria: Optional[str] = Field(
         default=None,
         description="Inhalation injury (SIM/NAO/SUSPEITA)"
     )
     
-    # Mechanism and agent (as text descriptions instead of IDs)
-    mecanismo_queimadura: Optional[str] = Field(default=None, description="Burn mechanism description (e.g., 'escaldadura', 'chama', 'contacto')")
-    agente_queimadura: Optional[str] = Field(default=None, description="Burn agent description (e.g., 'líquido quente', 'fogo direto', 'vapor')")
-    tipo_acidente: Optional[str] = Field(default=None, description="Accident type description (e.g., 'doméstico', 'trabalho', 'lazer')")
+    # Mechanism and agent - now using enums for better classification
+    mecanismo_queimadura: Optional[str] = Field(
+        default=None, 
+        description="Burn mechanism from BurnMechanismEnum (e.g., 'THERMAL_SCALD', 'THERMAL_FLAME', 'THERMAL_CONTACT'). If not clear, use text description."
+    )
+    agente_queimadura: Optional[str] = Field(
+        default=None, 
+        description="Burn agent from BurnAgentEnum (e.g., 'AGUA_QUENTE', 'OLEO_QUENTE', 'FOGO_DIRETO'). If not in enum, use text description."
+    )
+    tipo_acidente: Optional[str] = Field(
+        default=None, 
+        description="Accident type from AccidentTypeEnum (e.g., 'DOMESTICO', 'TRABALHO', 'LAZER'). If not clear, use text description."
+    )
     
     # Contextual flags
     incendio_florestal: Optional[bool] = Field(default=None, description="Forest fire involved")
@@ -249,20 +377,53 @@ class Queimadura(BaseModel):
     Individual burn (Queimadura) record
     Represents a burn at a specific anatomical location
     
-    IMPORTANT: Be as SPECIFIC as possible with anatomical locations:
+    IMPORTANT: Be as SPECIFIC as possible with anatomical locations AND burn depth:
+    
+    ANATOMICAL SPECIFICITY:
     - If burn affects HAND specifically, create a HAND entry
     - If burn affects rest of upper limb, create separate UPPER_LIMB entry
     - If burn affects FOOT specifically, create a FOOT entry
     - If burn affects rest of lower limb, create separate LOWER_LIMB entry
     - Do NOT group hand/foot with limbs - create separate entries
     - Create one entry per distinct anatomical region mentioned
+    
+    BURN DEPTH SPECIFICITY:
+    - "2º grau superficial" → SEGUNDO_SUPERFICIAL
+    - "2º grau profundo" → SEGUNDO_PROFUNDO
+    - "2º grau" (unspecified) → SEGUNDO_PROFUNDO (default to deep)
+    - "3º grau" → TERCEIRO
+    - "1º grau" → PRIMEIRO
+    - "4º grau" → QUARTO
+    - If multiple depths mentioned in same area, use MAXIMUM depth
+    
+    PERCENTAGE:
+    - Extract if mentioned for this specific location
+    - Use decimal precision (e.g., 8.5, 12.3)
+    - If range given (e.g., "6-8%"), use middle value or note in 'notas'
     """
     local_anatomico: LocalAnatomicoEnum = Field(
         description="Anatomical location (use enum: HEAD, FACE, CERVICAL, CHEST, ABDOMEN, BACK, PERINEUM, UPPER_LIMB, LOWER_LIMB, HAND, FOOT)"
     )
-    grau_maximo: Optional[GrauMaximoEnum] = Field(default=None, description="Maximum burn degree")
-    percentagem: Optional[float] = Field(default=None, description="Percentage of body surface for this location")
-    notas: Optional[str] = Field(default=None, description="Additional notes about this specific burn")
+    grau_maximo: Optional[GrauMaximoEnum] = Field(
+        default=None, 
+        description="Maximum burn degree - be specific: PRIMEIRO, SEGUNDO_SUPERFICIAL, SEGUNDO_PROFUNDO, TERCEIRO, QUARTO"
+    )
+    percentagem: Optional[float] = Field(
+        default=None, 
+        description="Percentage of body surface for this location (use decimal precision, e.g., 8.5)"
+    )
+    lateralidade: Optional[str] = Field(
+        default=None,
+        description="Laterality: 'direita', 'esquerda', 'bilateral', None if not specified or midline"
+    )
+    circunferencial: Optional[bool] = Field(
+        default=None,
+        description="True if burn is described as circumferential/circular around limb or body part"
+    )
+    notas: Optional[str] = Field(
+        default=None, 
+        description="Additional clinical details: depth variation, specific areas (e.g., 'dorso da mão', 'face anterior'), special features"
+    )
     
     # Source validation
     source_text: str = Field(
