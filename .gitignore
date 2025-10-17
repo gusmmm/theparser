@@ -1,17 +1,148 @@
-# Python-generated files
+# ============================================================================
+# Python
+# ============================================================================
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Virtual environments
+# ============================================================================
+# Virtual Environments
+# ============================================================================
 .venv
+venv/
+ENV/
+env/
+.virtualenv
 
-# secrets
+# ============================================================================
+# Secrets & Environment Variables (CRITICAL - DO NOT COMMIT)
+# ============================================================================
 .env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+secrets/
+credentials/
+*_credentials.json
+*_secret.json
 
-# private files
-pdf/*
-csv/*
+# API Keys and tokens
+*api_key*
+*apikey*
+*token*
+.secrets
+
+# ============================================================================
+# Private/Sensitive Data (CRITICAL - DO NOT COMMIT)
+# ============================================================================
+# Patient data - medical records
+pdf/
+csv/
+*.csv
+*.xlsx
+*.xls
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# ============================================================================
+# Reports and Generated Files
+# ============================================================================
+reports/
+*.pdf
+*.log
+*.logs
+
+# ============================================================================
+# IDE & Editor Files
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================================================
+# Jupyter Notebook
+# ============================================================================
+.ipynb_checkpoints
+*.ipynb
+
+# ============================================================================
+# OS Files
+# ============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================================================
+# Testing
+# ============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# ============================================================================
+# MyPy
+# ============================================================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+# Keep structure but ignore contents
+pdf/**/*
+!pdf/.gitkeep
+csv/**/*
+!csv/.gitkeep
+reports/**/*
+!reports/.gitkeep
+
+# Temporary extraction files
+*_extracted.json
+*_merged*.md
+*_cleaned.md
+
+# Local configuration overrides
+config.local.yaml
+settings.local.json
